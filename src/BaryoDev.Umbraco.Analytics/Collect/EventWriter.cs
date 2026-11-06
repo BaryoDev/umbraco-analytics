@@ -51,6 +51,34 @@ public sealed class EventWriter(
         }
     }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+
+        // Save what is still queued, within the host shutdown time.
+        var rest = new List<Hit>(BatchSize);
+        while (!cancellationToken.IsCancellationRequested && runtime.Level == RuntimeLevel.Run)
+        {
+            rest.Clear();
+            while (rest.Count < BatchSize && queue.Reader.TryRead(out Hit? hit))
+            {
+                rest.Add(hit);
+            }
+            if (rest.Count == 0)
+            {
+                break;
+            }
+            try
+            {
+                Save(rest);
+            }
+            catch (Exception e)
+            {
+                logger.LogError(e, "Analytics could not save {Count} page views on shutdown. They were dropped.", rest.Count);
+            }
+        }
+    }
+
     private void Save(List<Hit> batch)
     {
         TimeSpan idle = TimeSpan.FromMinutes(Math.Max(1, options.Value.VisitIdleMinutes));

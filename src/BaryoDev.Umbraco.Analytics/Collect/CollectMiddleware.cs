@@ -23,27 +23,23 @@ public sealed class CollectMiddleware(RequestDelegate next)
             return;
         }
 
-        // The cookie has to be set before the response starts.
-        if (o.SaltRotation == SaltRotation.Cookie)
-        {
-            collector.EnsureCookie(http);
-        }
+        string path = http.Request.Path.Value ?? "/";
+        collector.PrepareCookie(http, path);
 
         await next(http);
 
         if (http.Response.StatusCode != StatusCodes.Status200OK
-            || http.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) != true)
+            || http.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) != true
+            || !Collector.IsDocumentFetch(http))
         {
             return;
         }
 
-        Guid? key = http.Features.Get<UmbracoRouteValues>()?.PublishedRequest.PublishedContent?.Key;
-        Hit? hit = collector.Build(
-            http, http.Request.Path.Value ?? "/", http.Request.Headers.Referer.ToString(),
-            http.Request.QueryString.Value, key);
+        Hit? hit = collector.Build(http, path, http.Request.Headers.Referer.ToString(), http.Request.QueryString.Value);
         if (hit is not null)
         {
-            queue.TryEnqueue(hit);
+            Guid? key = http.Features.Get<UmbracoRouteValues>()?.PublishedRequest.PublishedContent?.Key;
+            queue.TryEnqueue(hit with { ContentKey = key });
         }
     }
 }

@@ -104,6 +104,7 @@ class BaryoAnalyticsDashboard extends Base {
           ${table("Top referrers", s.topReferrers, "Referrer", "Direct")}
           ${table("Devices", s.devices, "Device", "Unknown")}
           ${table("Browsers", s.browsers, "Browser", "Unknown")}
+          ${s.countries.length ? table("Countries", s.countries, "Country", "Unknown") : ""}
         </div>
         <p class="ba-note">Counts use a salted hash, no cookies. Raw IP addresses and User-Agents are never stored.</p>`;
     } catch (e) {

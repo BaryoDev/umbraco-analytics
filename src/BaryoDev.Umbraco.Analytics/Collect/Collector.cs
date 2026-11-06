@@ -3,50 +3,122 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace BaryoDev.Umbraco.Analytics.Collect;
 
 /// <summary>Turns a request into a Hit, or null when the request must not be counted.</summary>
-public sealed partial class Collector(IOptions<AnalyticsOptions> options, SecretProvider secrets, RateLimiter limiter, TimeProvider clock)
+public sealed partial class Collector(
+    IOptions<AnalyticsOptions> options, SecretProvider secrets, RateLimiter limiter, TimeProvider clock, ILogger<Collector> logger)
 {
     private const string CookieItem = "BaryoDev.Analytics.Cookie";
+    private int _failureLogged;
+    private int _proxyWarned;
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
     private static partial Regex CookieShape();
 
-    public Hit? Build(HttpContext http, string rawPath, string? referrer, string? query, Guid? contentKey)
+    /// <summary>Never throws. A failure is logged once and the hit is dropped.</summary>
+    public Hit? Build(HttpContext http, string rawPath, string? referrer, string? query)
+    {
+        try
+        {
+            return BuildCore(http, rawPath, referrer, query);
+        }
+        catch (Exception e)
+        {
+            LogFailure(e);
+            return null;
+        }
+    }
+
+    /// <summary>Middleware mode, before the response starts. Sets the id cookie only for a request that will be counted.</summary>
+    public void PrepareCookie(HttpContext http, string rawPath)
+    {
+        try
+        {
+            AnalyticsOptions o = options.Value;
+            if (o.SaltRotation != SaltRotation.Cookie || !IsDocumentFetch(http) || !Passes(http, rawPath, out _, out _))
+            {
+                return;
+            }
+
+            string? existing = http.Request.Cookies[o.CookieName];
+            if (existing is not null && CookieShape().IsMatch(existing))
+            {
+                http.Items[CookieItem] = existing;
+                return;
+            }
+
+            string value = NewCookieValue();
+            http.Items[CookieItem] = value;
+            http.Response.OnStarting(() =>
+            {
+                // Only HTML pages get the cookie. Secure uses the scheme after forwarded headers have run.
+                if (http.Response.StatusCode == StatusCodes.Status200OK
+                    && http.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    AppendCookie(http, value);
+                }
+                return Task.CompletedTask;
+            });
+        }
+        catch (Exception e)
+        {
+            LogFailure(e);
+        }
+    }
+
+    public static bool IsDocumentFetch(HttpContext http)
+    {
+        string dest = http.Request.Headers["Sec-Fetch-Dest"].ToString();
+        return dest.Length == 0 || dest.Equals("document", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void LogFailure(Exception e)
+    {
+        if (Interlocked.Exchange(ref _failureLogged, 1) == 0)
+        {
+            logger.LogWarning(e, "Analytics could not record a page view. This is logged once. Page views are skipped while it keeps failing.");
+        }
+    }
+
+    // The cheap skip checks. No state is changed here.
+    private bool Passes(HttpContext http, string rawPath, out string path, out string ua)
+    {
+        path = string.Empty;
+        AnalyticsOptions o = options.Value;
+        IHeaderDictionary h = http.Request.Headers;
+        ua = h.UserAgent.ToString();
+        if (!o.Enabled
+            || (o.RespectDoNotTrack && h["DNT"] == "1")
+            || (o.RespectGlobalPrivacyControl && h["Sec-GPC"] == "1")
+            || UserAgentInfo.IsBot(ua, o.ExtraBotUserAgents))
+        {
+            return false;
+        }
+
+        string? clean = NormalisePath(rawPath);
+        if (clean is null || IsExcluded(clean, o))
+        {
+            return false;
+        }
+        path = clean;
+        return true;
+    }
+
+    private Hit? BuildCore(HttpContext http, string rawPath, string? referrer, string? query)
     {
         AnalyticsOptions o = options.Value;
-        if (!o.Enabled)
-        {
-            return null;
-        }
-
-        IHeaderDictionary h = http.Request.Headers;
-        if (o.RespectDoNotTrack && h["DNT"] == "1")
-        {
-            return null;
-        }
-        if (o.RespectGlobalPrivacyControl && h["Sec-GPC"] == "1")
-        {
-            return null;
-        }
-
-        string ua = h.UserAgent.ToString();
-        if (UserAgentInfo.IsBot(ua, o.ExtraBotUserAgents))
-        {
-            return null;
-        }
-
-        string? path = NormalisePath(rawPath);
-        if (path is null || IsExcluded(path, o))
+        if (!Passes(http, rawPath, out string path, out string ua))
         {
             return null;
         }
 
         string ip = ClientIp(http, o);
-        if (!limiter.Allow(ip))
+        // With no usable address there is nothing fair to key the limit on, so it is skipped.
+        if (ip.Length > 0 && !limiter.Allow(ip))
         {
             return null;
         }
@@ -56,25 +128,25 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         string visitor;
         if (o.SaltRotation == SaltRotation.Cookie)
         {
-            visitor = VisitorHasher.FromCookie(o.SiteKey, EnsureCookie(http), secret);
+            visitor = VisitorHasher.FromCookie(o.SiteKey, CookieId(http), secret);
         }
         else
         {
             string salt = VisitorHasher.Salt(o.SaltRotation, now, secret);
-            visitor = VisitorHasher.FromRequest(o.SiteKey, ip, ua, salt, secret);
+            visitor = VisitorHasher.FromRequest(o.SiteKey, RateLimiter.Partition(ip), ua, salt, secret);
         }
 
         var utm = ParseUtm(query);
         return new Hit(
-            now, visitor, Cut(path, 500), contentKey,
+            now, visitor, Cut(path, 500), null,
             ReferrerHost(referrer, http.Request.Host.Host),
             utm.Source, utm.Medium, utm.Campaign,
             UserAgentInfo.Device(ua), UserAgentInfo.Browser(ua),
-            Country(h, o));
+            Country(http.Request.Headers, o));
     }
 
-    /// <summary>Reads the id cookie or makes one. The cookie is only ever set in Cookie mode.</summary>
-    public string EnsureCookie(HttpContext http)
+    // Middleware mode already chose the cookie. Script mode answers the beacon, so it sets the cookie here.
+    private string CookieId(HttpContext http)
     {
         if (http.Items[CookieItem] is string cached)
         {
@@ -85,22 +157,27 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         string? value = http.Request.Cookies[o.CookieName];
         if (value is null || !CookieShape().IsMatch(value))
         {
-            value = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-            if (!http.Response.HasStarted)
+            value = NewCookieValue();
+            if (o.Mode == CollectionMode.Script && !http.Response.HasStarted)
             {
-                http.Response.Cookies.Append(o.CookieName, value, new CookieOptions
-                {
-                    HttpOnly = true,
-                    SameSite = SameSiteMode.Lax,
-                    Secure = http.Request.IsHttps,
-                    MaxAge = TimeSpan.FromDays(365),
-                    IsEssential = true,
-                });
+                AppendCookie(http, value);
             }
         }
         http.Items[CookieItem] = value;
         return value;
     }
+
+    private static string NewCookieValue() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
+    private void AppendCookie(HttpContext http, string value)
+        => http.Response.Cookies.Append(options.Value.CookieName, value, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = http.Request.IsHttps,
+            MaxAge = TimeSpan.FromDays(365),
+            IsEssential = true,
+        });
 
     internal static string? NormalisePath(string? raw)
     {
@@ -110,7 +187,8 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         }
         int cut = raw.IndexOfAny(['?', '#']);
         string p = cut >= 0 ? raw[..cut] : raw;
-        if (!p.StartsWith('/'))
+        // Same-site page paths only: no "//host", no backslashes or control characters, no asset files.
+        if (!p.StartsWith('/') || p.StartsWith("//") || p.Contains('\\') || p.Any(char.IsControl) || IsAsset(p))
         {
             return null;
         }
@@ -125,6 +203,12 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         return p.Length > 500 ? p[..500] : p;
     }
 
+    private static readonly string[] AssetExtensions =
+        [".js", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".json", ".xml", ".txt"];
+
+    private static bool IsAsset(string path)
+        => AssetExtensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+
     private static bool IsExcluded(string path, AnalyticsOptions o)
     {
         if (Under(path, "/umbraco") || Under(path, "/baryo-analytics") || Under(path, "/App_Plugins"))
@@ -133,7 +217,8 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         }
         foreach (string x in o.ExcludedPaths)
         {
-            if (!string.IsNullOrWhiteSpace(x) && Under(path, x.TrimEnd('/')))
+            string prefix = "/" + x.Trim().Trim('/');
+            if (prefix.Length > 1 && Under(path, prefix))
             {
                 return true;
             }
@@ -155,6 +240,15 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
     private string ClientIp(HttpContext http, AnalyticsOptions o)
     {
         IPAddress? remote = Unmap(http.Connection.RemoteIpAddress);
+        if (remote is null || (string.IsNullOrWhiteSpace(o.ClientIpHeader) && http.Request.Headers.ContainsKey("X-Forwarded-For")))
+        {
+            if (Interlocked.Exchange(ref _proxyWarned, 1) == 0)
+            {
+                logger.LogWarning(
+                    "Analytics sees no usable client address (no remote IP, or an X-Forwarded-For header that is not handled). " +
+                    "Configure ASP.NET Core forwarded headers, or ClientIpHeader with TrustedProxies. The rate limit is skipped without an address.");
+            }
+        }
         if (string.IsNullOrWhiteSpace(o.ClientIpHeader) || remote is null)
         {
             return remote?.ToString() ?? string.Empty;
@@ -169,7 +263,13 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         string[] hops = http.Request.Headers[o.ClientIpHeader].ToString().Split(',', StringSplitOptions.TrimEntries);
         for (int i = hops.Length - 1; i >= 0; i--)
         {
-            if (!IPAddress.TryParse(hops[i], out IPAddress? hop))
+            string text = hops[i];
+            // IPv4 hops may carry a port. IPv6 hops in brackets already parse.
+            if (text.Count(c => c == ':') == 1 && text.Contains('.'))
+            {
+                text = text[..text.IndexOf(':')];
+            }
+            if (!IPAddress.TryParse(text, out IPAddress? hop))
             {
                 break;
             }

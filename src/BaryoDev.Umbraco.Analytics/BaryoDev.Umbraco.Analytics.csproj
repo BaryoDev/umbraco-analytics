@@ -16,8 +16,8 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Umbraco.Cms.Web.Common" Version="17.*" />
-    <PackageReference Include="Umbraco.Cms.Api.Management" Version="17.*" />
+    <PackageReference Include="Umbraco.Cms.Web.Common" Version="[17.8.1,18.0.0)" />
+    <PackageReference Include="Umbraco.Cms.Api.Management" Version="[17.8.1,18.0.0)" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />

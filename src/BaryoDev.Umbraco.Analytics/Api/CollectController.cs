@@ -47,18 +47,30 @@ public sealed class CollectController(
             using JsonDocument doc = JsonDocument.Parse(buffer.AsMemory(0, read));
             JsonElement root = doc.RootElement;
             string? path = Text(root, "p");
-            Hit? hit = collector.Build(HttpContext, path ?? string.Empty, Text(root, "r"), Text(root, "q"),
-                Collector.NormalisePath(path) is { } clean ? resolver.Resolve(clean) : null);
+            // The browser sends the encoded pathname. Middleware mode sees it decoded, so decode it here too.
+            Hit? hit = collector.Build(HttpContext, Decode(path), Text(root, "r"), Text(root, "q"));
             if (hit is not null)
             {
-                queue.TryEnqueue(hit);
+                queue.TryEnqueue(hit with { ContentKey = resolver.Resolve(hit.Path) });
             }
         }
-        catch (Exception e) when (e is JsonException or Microsoft.AspNetCore.Http.BadHttpRequestException or InvalidOperationException)
+        catch (Exception)
         {
-            // A malformed or oversized beacon is ignored.
+            // A malformed or oversized beacon, or a fault in recording it, never reaches the page. Collector logs real faults once.
         }
         return Accepted();
+    }
+
+    private static string Decode(string? path)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(path ?? string.Empty);
+        }
+        catch (UriFormatException)
+        {
+            return string.Empty;
+        }
     }
 
     private static string? Text(JsonElement root, string name)
