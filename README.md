@@ -44,6 +44,7 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `ExcludedPaths` | empty | Extra path prefixes to skip |
 | `ExtraBotUserAgents` | empty | Extra User-Agent fragments to skip |
 | `CookieName` | `ba_vid` | Cookie name in `Cookie` mode |
+| `RateLimitPerMinute` | `120` | Hits per client per minute. Extra hits are dropped. `0` turns it off |
 | `QueueCapacity` | `10000` | Events held in memory before new ones are dropped |
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace BaryoDev.Umbraco.Analytics.Collect;
 
 /// <summary>Turns a request into a Hit, or null when the request must not be counted.</summary>
-public sealed partial class Collector(IOptions<AnalyticsOptions> options, SecretProvider secrets, TimeProvider clock)
+public sealed partial class Collector(IOptions<AnalyticsOptions> options, SecretProvider secrets, RateLimiter limiter, TimeProvider clock)
 {
     private const string CookieItem = "BaryoDev.Analytics.Cookie";
 
@@ -45,6 +45,11 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
             return null;
         }
 
+        if (!limiter.Allow(ClientIp(http, o)))
+        {
+            return null;
+        }
+
         DateTime now = clock.GetUtcNow().UtcDateTime;
         string secret = secrets.Get();
         string visitor;
@@ -60,7 +65,7 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
 
         var utm = ParseUtm(query);
         return new Hit(
-            now, visitor, path, contentKey,
+            now, visitor, Cut(path, 500), contentKey,
             ReferrerHost(referrer, http.Request.Host.Host),
             utm.Source, utm.Medium, utm.Campaign,
             UserAgentInfo.Device(ua), UserAgentInfo.Browser(ua),

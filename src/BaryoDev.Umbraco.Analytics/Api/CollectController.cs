@@ -7,7 +7,7 @@ using Umbraco.Cms.Core.Services;
 
 namespace BaryoDev.Umbraco.Analytics.Api;
 
-/// <summary>Public beacon endpoint for script mode. Always answers 204 so the page never sees an error.</summary>
+/// <summary>Public beacon endpoint for script mode. Always answers 202 so the page never sees an error.</summary>
 [ApiExplorerSettings(IgnoreApi = true)]
 public sealed class CollectController(
     IOptions<AnalyticsOptions> options, Collector collector, EventQueue queue,
@@ -21,7 +21,13 @@ public sealed class CollectController(
         if (options.Value.Mode != CollectionMode.Script || runtime.Level != RuntimeLevel.Run
             || Request.ContentLength is > MaxBody)
         {
-            return NoContent();
+            return Accepted();
+        }
+
+        var limit = HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (limit is { IsReadOnly: false })
+        {
+            limit.MaxRequestBodySize = MaxBody;
         }
 
         try
@@ -35,7 +41,7 @@ public sealed class CollectController(
             }
             if (read > MaxBody)
             {
-                return NoContent();
+                return Accepted();
             }
 
             using JsonDocument doc = JsonDocument.Parse(buffer.AsMemory(0, read));
@@ -48,11 +54,11 @@ public sealed class CollectController(
                 queue.TryEnqueue(hit);
             }
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or Microsoft.AspNetCore.Http.BadHttpRequestException or InvalidOperationException)
         {
-            // A malformed beacon is ignored.
+            // A malformed or oversized beacon is ignored.
         }
-        return NoContent();
+        return Accepted();
     }
 
     private static string? Text(JsonElement root, string name)

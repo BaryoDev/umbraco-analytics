@@ -64,14 +64,14 @@ public sealed class EventWriter(
                 Day = h.OccurredUtc.Date,
                 VisitorId = h.VisitorId,
                 VisitId = visitId,
-                Path = h.Path,
+                Path = Cut(h.Path, 500),
                 ContentKey = h.ContentKey,
-                ReferrerHost = h.ReferrerHost,
-                UtmSource = h.UtmSource,
-                UtmMedium = h.UtmMedium,
-                UtmCampaign = h.UtmCampaign,
-                Device = h.Device,
-                Browser = h.Browser,
+                ReferrerHost = Cut(h.ReferrerHost, 255),
+                UtmSource = Cut(h.UtmSource, 255),
+                UtmMedium = Cut(h.UtmMedium, 255),
+                UtmCampaign = Cut(h.UtmCampaign, 255),
+                Device = Cut(h.Device, 16),
+                Browser = Cut(h.Browser, 32),
                 Country = h.Country,
             });
         }
@@ -86,6 +86,8 @@ public sealed class EventWriter(
             }
         }
     }
+
+    private static string Cut(string s, int max) => s.Length > max ? s[..max] : s;
 
     private string VisitFor(IScope scope, Hit h, TimeSpan idle)
     {

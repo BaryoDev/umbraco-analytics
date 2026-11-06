@@ -37,5 +37,7 @@ public sealed class AnalyticsOptions
     public string? ClientIpHeader { get; set; }
     public List<string> ExcludedPaths { get; set; } = [];
     public List<string> ExtraBotUserAgents { get; set; } = [];
+    /// <summary>Hits per client per minute before extra hits are dropped. 0 turns the limit off.</summary>
+    public int RateLimitPerMinute { get; set; } = 120;
     public int QueueCapacity { get; set; } = 10000;
 }

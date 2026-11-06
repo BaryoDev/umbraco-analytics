@@ -30,6 +30,7 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco, no ra
 - Middleware mode: the server records GET requests that return 200 HTML. Content key comes from the Umbraco route values.
 - Only one mode is active. The other path does nothing, so a page is never counted twice.
 - Skipped: DNT or Sec-GPC when the options say so, bot user agents, empty user agents, `/umbraco` and the configured excluded paths.
+- Each client is limited to `RateLimitPerMinute` hits (fixed one-minute window, keyed by a salted hash of the IP). Extra hits are dropped and the endpoint still answers 202. The collect body is capped at 4 KB, and path, referrer and UTM values are cut to the column lengths.
 - Events go into a bounded in-memory queue. A background writer saves them in batches. When the queue is full, new events are dropped instead of slowing the site.
 - Country is read from a header (`CF-IPCountry` by default) only if it is present. There is no GeoIP lookup.
 
@@ -53,7 +54,7 @@ Management API `GET /umbraco/management/api/v1/baryo-analytics/summary?days=7|30
 
 ## Not covered
 
-- Anyone can POST fake page views to the collect endpoint. There is no rate limit in v0.1.
+- Anyone can POST fake page views to the collect endpoint. A per-client rate limit drops floods, but a spread-out attacker can still add fake views.
 - Behind a proxy, the site must configure forwarded headers or set `ClientIpHeader`, otherwise every visitor looks the same.
 - Bot detection is a user agent substring list.
 

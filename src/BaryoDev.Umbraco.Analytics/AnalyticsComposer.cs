@@ -16,6 +16,7 @@ public sealed class AnalyticsComposer : IComposer
         builder.Services.AddOptions<AnalyticsOptions>().BindConfiguration(AnalyticsOptions.Section);
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<SecretProvider>();
+        builder.Services.AddSingleton<RateLimiter>();
         builder.Services.AddSingleton<Collector>();
         builder.Services.AddSingleton<EventQueue>();
         builder.Services.AddSingleton<ContentKeyResolver>();
