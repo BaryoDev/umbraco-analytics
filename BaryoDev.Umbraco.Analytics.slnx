@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BaryoDev.Umbraco.Analytics/BaryoDev.Umbraco.Analytics.csproj" />
+  </Folder>
+</Solution>

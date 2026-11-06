@@ -1,0 +1,22 @@
+{
+  "$schema": "https://marketplace.umbraco.com/umbraco-marketplace-schema.json",
+  "PackageType": "Package",
+  "Category": "Developer Tools",
+  "Description": "Cookie-free page view analytics for Umbraco 17, stored in your own Umbraco database. No second database and no external service. Visitors are counted with a salted hash that rotates, and the raw IP and User-Agent are never stored. A backoffice dashboard shows visitors, visits, page views, top pages, top referrers and devices for 7, 30 or 90 days. Old events roll into daily totals before they are deleted. Works on SQLite and SQL Server. Free and MIT licensed.",
+  "AuthorDetails": {
+    "Name": "BaryoDev",
+    "Description": "Small open source .NET and JavaScript packages.",
+    "Url": "https://github.com/BaryoDev",
+    "ImageUrl": "https://raw.githubusercontent.com/BaryoDev/BaryoDev.Umbraco.Analytics/main/icon.png"
+  },
+  "DocumentationUrl": "https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics#readme",
+  "IssueTrackerUrl": "https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics/issues",
+  "LicenseTypes": [ "Free" ],
+  "Tags": [
+    "analytics",
+    "privacy",
+    "page views",
+    "statistics",
+    "cookie free"
+  ]
+}
