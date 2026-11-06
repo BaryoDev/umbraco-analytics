@@ -21,7 +21,7 @@ public sealed class RateLimiter(IOptions<AnalyticsOptions> options, SecretProvid
         }
 
         string key = Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes("rl|" + ip + "|" + secrets.Get())), 0, 8);
+            SHA256.HashData(Encoding.UTF8.GetBytes("rl|" + Partition(ip) + "|" + secrets.Get())), 0, 8);
         long window = clock.GetUtcNow().ToUnixTimeSeconds() / 60;
         lock (_gate)
         {
@@ -38,5 +38,16 @@ public sealed class RateLimiter(IOptions<AnalyticsOptions> options, SecretProvid
             _counts[key] = n;
             return n <= limit;
         }
+    }
+
+    // One IPv6 /64 is one client, so a single host cannot fill the table with fresh addresses.
+    internal static string Partition(string ip)
+    {
+        if (!System.Net.IPAddress.TryParse(ip, out var addr)) return ip;
+        if (addr.IsIPv4MappedToIPv6) return addr.MapToIPv4().ToString();
+        if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6) return addr.ToString();
+        byte[] b = addr.GetAddressBytes();
+        Array.Clear(b, 8, 8);
+        return new System.Net.IPAddress(b).ToString() + "/64";
     }
 }
