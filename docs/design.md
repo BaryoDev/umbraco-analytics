@@ -14,11 +14,11 @@ Page view analytics that live in the site's own Umbraco database. The approach f
 
 ## Visits
 
-A visit is one visitor with gaps under `VisitIdleMinutes` (default 30). The writer keeps the last seen time per visitor in memory and falls back to the newest event row on a cache miss. A new visit gets a random id.
+Visit ids are assigned per server process, so with several servers the same visitor can get more than one visit id. A visit is one visitor with gaps under `VisitIdleMinutes` (default 30). The writer keeps the last seen time per visitor in memory and falls back to the newest event row on a cache miss. A new visit gets a random id.
 
 ## Tables
 
-Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco, no raw SQL, so it runs on SQLite and SQL Server.
+Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco. Creation uses no raw SQL. Stats and the retention job use plain SQL that works on SQLite and SQL Server. Package migrations must be allowed to run (the Umbraco default).
 
 `baryoAnalyticsEvent`: Id, OccurredUtc, Day (UTC date, for portable grouping), VisitorId, VisitId, Path, ContentKey (null when the request is not published content), ReferrerHost, UtmSource, UtmMedium, UtmCampaign, Device, Browser, Country.
 
@@ -26,8 +26,9 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco, no ra
 
 ## Collection
 
-- Script mode (default): a tiny script sends `navigator.sendBeacon` to `POST /baryo-analytics/collect` with path, referrer and query string. Falls back to `fetch` with `keepalive`.
+- Script mode (default): a tiny script sends `navigator.sendBeacon` to `POST /baryo-analytics/collect` with path, referrer and query string. Falls back to `fetch` with `keepalive`. The server percent-decodes the path, then accepts only same-site page paths: it must start with a single `/`, hold no control characters or backslashes, and not end in an asset extension.
 - Middleware mode: the server records GET requests that return 200 HTML. Content key comes from the Umbraco route values.
+- In `Cookie` mode with middleware, the cookie is set only on HTML 200 responses to requests that pass the DNT, GPC, bot and path checks. The collector never throws; a fault is logged once and the hit is dropped. On shutdown the queue is saved within the host shutdown time.
 - Only one mode is active. The other path does nothing, so a page is never counted twice.
 - Skipped: DNT or Sec-GPC when the options say so, bot user agents, empty user agents, `/umbraco` and the configured excluded paths.
 - Each client is limited to `RateLimitPerMinute` hits (fixed one-minute window, keyed by a salted hash of the IP). The limiter holds at most 50,000 buckets per window. When full, hits from unseen clients are dropped until the next window. Extra hits are dropped and the endpoint still answers 202. The collect body is capped at 4 KB, and path, referrer and UTM values are cut to the column lengths.
@@ -37,9 +38,9 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco, no ra
 
 ## Aggregation and retention
 
-A daily background job (single or scheduling server only) handles every day older than `RetentionDays` (default 395). In one scope per day it deletes any earlier aggregate rows for that day, writes the new ones from the raw events, then deletes the raw events. Rolled-up rows keep counts only.
+A background job (every 6 hours, single or scheduling server only) handles every day older than `RetentionDays` (default 395, minimum 1). For each day it first writes the daily rows in one transaction. The `total` row is written last and marks the day as rolled. Then it deletes the raw events in chunks of 1,000, so the writer is not blocked. If the job stops halfway, the next run sees the `total` row and only finishes deleting. A late event for an already rolled day is deleted without being counted.
 
-The dashboard reads raw events for the recent window and aggregate rows for days older than the raw cutoff. Visitors from aggregate days are summed per day, so a range that crosses the cutoff slightly over-counts people who came back on several days. Ranges of 7, 30 and 90 days stay inside the default retention and are exact.
+The dashboard reads raw events for days with no `total` row and daily rows for the rest, so changing `RetentionDays` leaves no gap and no double count. Visitors and visits are summed per day on rolled days, and a visit that crosses UTC midnight counts once per day. A range that includes rolled days over-counts people who came back on several days. Ranges of 7, 30 and 90 days stay inside the default retention and are exact. Top lists are ranked and limited in SQL. The path is stored as received, so grouping follows the database collation (case-insensitive on SQL Server, case-sensitive on SQLite).
 
 ## Dashboard
 

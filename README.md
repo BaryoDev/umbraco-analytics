@@ -20,6 +20,8 @@ Script mode is the default. Add the tag to your layout:
 <script defer src="/baryo-analytics/tracker.js"></script>
 ```
 
+The script posts to `/baryo-analytics/collect` next to itself. Set `data-endpoint="..."` on the tag to use another URL.
+
 Middleware mode records HTML page requests on the server, no script needed. Set `"Mode": "Middleware"`.
 
 Only one mode runs at a time, so a page is not counted twice.
@@ -43,22 +45,26 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `ClientIpHeader` | empty | Header with the client IP chain. Read only when the connection comes from a `TrustedProxies` entry |
 | `TrustedProxies` | empty | IPs or CIDRs of your proxies. The header chain is walked from the right and the first hop that is not a trusted proxy is the client |
 | `ExcludedPaths` | empty | Extra path prefixes to skip |
-| `ExtraBotUserAgents` | empty | Extra User-Agent fragments to skip |
+| `ExtraBotUserAgents` | empty | Extra User-Agent fragments to skip. The built-in list matches fragments such as `bot`, so a rare real browser can be skipped |
 | `CookieName` | `ba_vid` | Cookie name in `Cookie` mode |
 | `RateLimitPerMinute` | `120` | Hits per client per minute. Extra hits are dropped. `0` turns it off. Tracks at most 50,000 clients per minute, then drops hits from new ones |
 | `QueueCapacity` | `10000` | Events held in memory before new ones are dropped |
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.
 
-Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one.
+Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first.
 
 ## Privacy model
 
 - The visitor id is `SHA-256(siteKey, IP, User-Agent, salt, secret)`, cut to 32 hex characters. The salt changes every month (or day), so ids do not carry over.
 - The raw IP and User-Agent are not stored. The event table has no column for them.
 - No cookie is set unless `SaltRotation` is `Cookie`. That mode uses a random first-party id cookie and stores only its hash.
+- The stored path is the page path as typed, without the query string or fragment. If your URLs carry tokens or emails in the path, they are stored for the retention period, so use `ExcludedPaths` for those routes. The referrer is kept as a host and the UTM values as sent.
 - The path loses its query string. The referrer is kept as a host. Only the three `utm_` values are kept from the query.
 - Device class and browser family come from the User-Agent and are stored as short labels.
+- A generated secret lives in the same database as the events. Set `Secret` from an environment variable or a secret store if you want it kept apart.
+- Country comes from `CountryHeader` as sent. Only use it behind a proxy that sets or overwrites that header.
+- Visit stitching is per server process. With several servers, a visitor who moves between them can be counted as more than one visit.
 - This describes what the code does. Whether it meets the consent rules where you operate is your call.
 
 ## Dashboard
