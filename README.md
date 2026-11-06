@@ -40,16 +40,17 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `RespectDoNotTrack` | `true` | Skip requests with `DNT: 1` |
 | `RespectGlobalPrivacyControl` | `true` | Skip requests with `Sec-GPC: 1` |
 | `CountryHeader` | `CF-IPCountry` | Country is stored only if this header is present |
-| `ClientIpHeader` | empty | Header with the client IP behind a trusted proxy |
+| `ClientIpHeader` | empty | Header with the client IP chain. Read only when the connection comes from a `TrustedProxies` entry |
+| `TrustedProxies` | empty | IPs or CIDRs of your proxies. The header chain is walked from the right and the first hop that is not a trusted proxy is the client |
 | `ExcludedPaths` | empty | Extra path prefixes to skip |
 | `ExtraBotUserAgents` | empty | Extra User-Agent fragments to skip |
 | `CookieName` | `ba_vid` | Cookie name in `Cookie` mode |
-| `RateLimitPerMinute` | `120` | Hits per client per minute. Extra hits are dropped. `0` turns it off |
+| `RateLimitPerMinute` | `120` | Hits per client per minute. Extra hits are dropped. `0` turns it off. Tracks at most 50,000 clients per minute, then drops hits from new ones |
 | `QueueCapacity` | `10000` | Events held in memory before new ones are dropped |
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.
 
-Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader`. Otherwise all visitors share one address and count as one.
+Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one.
 
 ## Privacy model
 

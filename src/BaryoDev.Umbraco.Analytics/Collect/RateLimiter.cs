@@ -4,12 +4,13 @@ using Microsoft.Extensions.Options;
 
 namespace BaryoDev.Umbraco.Analytics.Collect;
 
-/// <summary>Fixed one-minute window per client. The key is a salted hash, so no raw IP is held in memory.</summary>
+/// <summary>Fixed one-minute window per client, at most 50,000 clients per window. The key is a salted hash, so no raw IP is held in memory.</summary>
 public sealed class RateLimiter(IOptions<AnalyticsOptions> options, SecretProvider secrets, TimeProvider clock)
 {
     private readonly object _gate = new();
     private Dictionary<string, int> _counts = [];
     private long _window;
+    private const int MaxBuckets = 50_000;
 
     public bool Allow(string ip)
     {
@@ -29,7 +30,11 @@ public sealed class RateLimiter(IOptions<AnalyticsOptions> options, SecretProvid
                 _window = window;
                 _counts = [];
             }
-            int n = _counts.GetValueOrDefault(key) + 1;
+            if (!_counts.TryGetValue(key, out int seen) && _counts.Count >= MaxBuckets)
+            {
+                return false;
+            }
+            int n = seen + 1;
             _counts[key] = n;
             return n <= limit;
         }

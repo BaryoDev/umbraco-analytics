@@ -45,7 +45,8 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
             return null;
         }
 
-        if (!limiter.Allow(ClientIp(http, o)))
+        string ip = ClientIp(http, o);
+        if (!limiter.Allow(ip))
         {
             return null;
         }
@@ -60,7 +61,7 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         else
         {
             string salt = VisitorHasher.Salt(o.SaltRotation, now, secret);
-            visitor = VisitorHasher.FromRequest(o.SiteKey, ClientIp(http, o), ua, salt, secret);
+            visitor = VisitorHasher.FromRequest(o.SiteKey, ip, ua, salt, secret);
         }
 
         var utm = ParseUtm(query);
@@ -144,18 +145,71 @@ public sealed partial class Collector(IOptions<AnalyticsOptions> options, Secret
         => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
            && (path.Length == prefix.Length || path[prefix.Length] == '/');
 
-    private static string ClientIp(HttpContext http, AnalyticsOptions o)
+    private string[]? _trustedKey;
+    private IPNetwork[] _trusted = [];
+
+    /// <summary>
+    /// The header is read only when the connection comes from a trusted proxy. Then the chain is walked
+    /// from the right and the first hop that is not a trusted proxy wins, so a forged left entry is ignored.
+    /// </summary>
+    private string ClientIp(HttpContext http, AnalyticsOptions o)
     {
-        if (!string.IsNullOrWhiteSpace(o.ClientIpHeader))
+        IPAddress? remote = Unmap(http.Connection.RemoteIpAddress);
+        if (string.IsNullOrWhiteSpace(o.ClientIpHeader) || remote is null)
         {
-            string first = http.Request.Headers[o.ClientIpHeader].ToString().Split(',')[0].Trim();
-            if (IPAddress.TryParse(first, out IPAddress? parsed))
+            return remote?.ToString() ?? string.Empty;
+        }
+
+        IPNetwork[] trusted = Trusted(o.TrustedProxies);
+        if (!IsTrusted(remote, trusted))
+        {
+            return remote.ToString();
+        }
+
+        string[] hops = http.Request.Headers[o.ClientIpHeader].ToString().Split(',', StringSplitOptions.TrimEntries);
+        for (int i = hops.Length - 1; i >= 0; i--)
+        {
+            if (!IPAddress.TryParse(hops[i], out IPAddress? hop))
             {
-                return parsed.ToString();
+                break;
+            }
+            hop = Unmap(hop)!;
+            if (!IsTrusted(hop, trusted))
+            {
+                return hop.ToString();
             }
         }
-        return http.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+        return remote.ToString();
     }
+
+    private IPNetwork[] Trusted(List<string> entries)
+    {
+        string[] snapshot = [.. entries];
+        if (_trustedKey is null || !_trustedKey.SequenceEqual(snapshot))
+        {
+            var list = new List<IPNetwork>();
+            foreach (string e in snapshot)
+            {
+                string text = e.Trim();
+                if (IPNetwork.TryParse(text, out IPNetwork net))
+                {
+                    list.Add(net);
+                }
+                else if (IPAddress.TryParse(text, out IPAddress? single))
+                {
+                    single = Unmap(single)!;
+                    list.Add(new IPNetwork(single, single.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128));
+                }
+            }
+            _trusted = [.. list];
+            _trustedKey = snapshot;
+        }
+        return _trusted;
+    }
+
+    private static bool IsTrusted(IPAddress ip, IPNetwork[] trusted) => trusted.Any(n => n.Contains(ip));
+
+    private static IPAddress? Unmap(IPAddress? ip) => ip is { IsIPv4MappedToIPv6: true } ? ip.MapToIPv4() : ip;
 
     private static string Country(IHeaderDictionary h, AnalyticsOptions o)
     {

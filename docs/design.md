@@ -30,8 +30,9 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco, no ra
 - Middleware mode: the server records GET requests that return 200 HTML. Content key comes from the Umbraco route values.
 - Only one mode is active. The other path does nothing, so a page is never counted twice.
 - Skipped: DNT or Sec-GPC when the options say so, bot user agents, empty user agents, `/umbraco` and the configured excluded paths.
-- Each client is limited to `RateLimitPerMinute` hits (fixed one-minute window, keyed by a salted hash of the IP). Extra hits are dropped and the endpoint still answers 202. The collect body is capped at 4 KB, and path, referrer and UTM values are cut to the column lengths.
+- Each client is limited to `RateLimitPerMinute` hits (fixed one-minute window, keyed by a salted hash of the IP). The limiter holds at most 50,000 buckets per window. When full, hits from unseen clients are dropped until the next window. Extra hits are dropped and the endpoint still answers 202. The collect body is capped at 4 KB, and path, referrer and UTM values are cut to the column lengths.
 - Events go into a bounded in-memory queue. A background writer saves them in batches. When the queue is full, new events are dropped instead of slowing the site.
+- The client IP comes from the connection. `ClientIpHeader` is read only when the connection is from an entry in `TrustedProxies`; the chain is walked from the right and the first untrusted hop is used. The same value feeds the hash and the rate limiter.
 - Country is read from a header (`CF-IPCountry` by default) only if it is present. There is no GeoIP lookup.
 
 ## Aggregation and retention
@@ -55,7 +56,7 @@ Management API `GET /umbraco/management/api/v1/baryo-analytics/summary?days=7|30
 ## Not covered
 
 - Anyone can POST fake page views to the collect endpoint. A per-client rate limit drops floods, but a spread-out attacker can still add fake views.
-- Behind a proxy, the site must configure forwarded headers or set `ClientIpHeader`, otherwise every visitor looks the same.
+- Behind a proxy, the site must configure forwarded headers or set `ClientIpHeader` and `TrustedProxies`, otherwise every visitor looks the same.
 - Bot detection is a user agent substring list.
 
 ## Paid-tier candidates

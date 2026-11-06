@@ -33,8 +33,10 @@ public sealed class AnalyticsOptions
     public string CookieName { get; set; } = "ba_vid";
     /// <summary>Header holding the country code. Read only if present.</summary>
     public string CountryHeader { get; set; } = "CF-IPCountry";
-    /// <summary>Header holding the client IP behind a trusted proxy. Empty uses the connection address.</summary>
+    /// <summary>Header holding the client IP chain. Read only when the connection comes from a TrustedProxies entry.</summary>
     public string? ClientIpHeader { get; set; }
+    /// <summary>IPs or CIDRs of proxies allowed to set ClientIpHeader. Empty means the header is never trusted.</summary>
+    public List<string> TrustedProxies { get; set; } = [];
     public List<string> ExcludedPaths { get; set; } = [];
     public List<string> ExtraBotUserAgents { get; set; } = [];
     /// <summary>Hits per client per minute before extra hits are dropped. 0 turns the limit off.</summary>
