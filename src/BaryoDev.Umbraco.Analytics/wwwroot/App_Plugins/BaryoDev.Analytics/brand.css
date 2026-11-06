@@ -1,0 +1,46 @@
+/* baryo.dev tokens, scoped to the Analytics dashboard. Nothing here touches the rest of the backoffice. */
+.ba {
+  --ink: #1c2321;
+  --ink-soft: #4d5552;
+  --ink-mute: #6b736f;
+  --paper-sand: #fbf7ee;
+  --line: #ece4d0;
+  --green: #0b7a55;
+  --green-deep: #075a3e;
+  --green-soft: #7cc4a4;
+  --yellow: #ffcd3c;
+  --orange: #d9501f;
+  --mint: #e7f4ee;
+  --radius-card: 16px;
+  color: var(--ink);
+  background: var(--paper-sand);
+  padding: 20px;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.ba * { box-sizing: border-box; }
+.ba-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.ba-head h2 { margin: 0; font-size: 20px; }
+.ba-range { display: flex; gap: 4px; }
+.ba-btn { padding: 6px 14px; border: 1px solid var(--green); border-radius: 999px; background: #fff; color: var(--green-deep); font: inherit; font-weight: 600; cursor: pointer; }
+.ba-btn[aria-pressed="true"] { background: var(--green); color: #fff; }
+.ba-btn:focus-visible { outline: 3px solid #2b5cf6; outline-offset: 2px; }
+.ba-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.ba-card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px; }
+.ba-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+.ba-num { font-size: 32px; font-weight: 700; color: var(--green-deep); line-height: 1.1; }
+.ba-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+@media (max-width: 900px) { .ba-grid, .ba-cards { grid-template-columns: minmax(0, 1fr); } }
+.ba-chart svg { width: 100%; height: auto; display: block; }
+.ba-chart .bar { fill: var(--green); }
+.ba-chart .bar:hover { fill: var(--green-deep); }
+.ba-chart .axis { stroke: var(--line); stroke-width: 1; }
+.ba-chart text { fill: var(--ink-mute); font-size: 11px; font-family: inherit; }
+.ba-table { border-collapse: collapse; width: 100%; }
+.ba-table th, .ba-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+.ba-table th { color: var(--ink-soft); font-weight: 600; }
+.ba-table td.n, .ba-table th.n { text-align: right; white-space: nowrap; }
+.ba-table td.v { word-break: break-all; }
+.ba-note { color: var(--ink-soft); font-size: 13px; }
+.ba-err { padding: 8px 12px; background: #fdeae4; border: 1px solid var(--orange); border-radius: 8px; margin-bottom: 16px; }
