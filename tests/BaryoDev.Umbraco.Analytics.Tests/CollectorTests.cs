@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using BaryoDev.Umbraco.Analytics.Api;
 using BaryoDev.Umbraco.Analytics.Collect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Umbraco.Cms.Core;
 using Umbraco.Cms.Core.Services;
+using Umbraco.Cms.Web.Common.Authorization;
 
 namespace BaryoDev.Umbraco.Analytics.Tests;
 
@@ -273,5 +275,185 @@ public class CollectorTests
         Assert.IsType<AcceptedResult>(result);
         Assert.True(queue.Reader.TryRead(out Hit? hit));
         Assert.Equal("/café/a b", hit!.Path);
+    }
+
+    private static (CollectController Controller, EventQueue Queue) ScriptController(DefaultHttpContext http)
+    {
+        var rig = new Rig(o => o.Mode = CollectionMode.Script);
+        var queue = new EventQueue(Microsoft.Extensions.Options.Options.Create(rig.Options));
+        var controller = new CollectController(
+            Microsoft.Extensions.Options.Options.Create(rig.Options), rig.Collector, queue,
+            new ContentKeyResolver(null!), DispatchProxy.Create<IRuntimeState, RuntimeProxy>());
+        controller.ControllerContext = new ControllerContext(new ActionContext(
+            http, new RouteData(), new ControllerActionDescriptor { ControllerName = "Collect", ActionName = "Collect" }));
+        return (controller, queue);
+    }
+
+    private static async Task AssertBeaconDropped(Stream body, long? contentLength)
+    {
+        DefaultHttpContext http = Request("203.0.113.7");
+        http.Request.Body = body;
+        http.Request.ContentLength = contentLength;
+        (CollectController controller, EventQueue queue) = ScriptController(http);
+
+        IActionResult result = await controller.Collect(CancellationToken.None);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.False(queue.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task Beacon_over_4096_bytes_is_dropped()
+    {
+        byte[] body = Encoding.UTF8.GetBytes("""{"p":"/""" + new string('a', 4100) + "\"}");
+        await AssertBeaconDropped(new MemoryStream(body), body.Length);
+    }
+
+    [Fact]
+    public async Task Beacon_with_a_large_content_length_is_dropped_before_reading()
+    {
+        byte[] body = Encoding.UTF8.GetBytes("""{"p":"/ok"}""");
+        await AssertBeaconDropped(new MemoryStream(body), 5000);
+    }
+
+    [Fact]
+    public async Task Chunked_beacon_over_the_cap_is_dropped()
+    {
+        await AssertBeaconDropped(new MemoryStream(new byte[100_000]), null);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""{"p":123}""")]
+    [InlineData("""{"p":"\ud800"}""")]
+    [InlineData("not json")]
+    public async Task Malformed_beacon_is_accepted_and_records_nothing(string json)
+    {
+        byte[] body = Encoding.UTF8.GetBytes(json);
+        await AssertBeaconDropped(new MemoryStream(body), body.Length);
+    }
+
+    [Theory]
+    [InlineData("//evil.com")]
+    [InlineData("/a\\b")]
+    [InlineData("/a\nb")]
+    [InlineData("/img.png")]
+    [InlineData("/app.JS")]
+    [InlineData("page")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void NormalisePath_rejects(string? raw) => Assert.Null(Collector.NormalisePath(raw));
+
+    [Theory]
+    [InlineData("/x/", "/x")]
+    [InlineData("/", "/")]
+    [InlineData("///", null)]
+    [InlineData("/x?q=1", "/x")]
+    [InlineData("/x#f", "/x")]
+    [InlineData("/a/b/c", "/a/b/c")]
+    public void NormalisePath_cleans(string raw, string? expected) => Assert.Equal(expected, Collector.NormalisePath(raw));
+
+    [Fact]
+    public void NormalisePath_cuts_at_500_characters()
+        => Assert.Equal(500, Collector.NormalisePath("/" + new string('a', 600))!.Length);
+
+    [Theory]
+    [InlineData("US", "US")]
+    [InlineData("us", "US")]
+    [InlineData(" ph ", "PH")]
+    [InlineData("XX", "")]
+    [InlineData("T1", "")]
+    [InlineData("USA", "")]
+    [InlineData("", "")]
+    [InlineData("1A", "")]
+    public void Country_header_is_validated(string header, string expected)
+    {
+        var rig = new Rig(o => o.CountryHeader = "CF-IPCountry");
+        Hit? hit = rig.Hit("203.0.113.7", http => http.Request.Headers["CF-IPCountry"] = header);
+        Assert.Equal(expected, hit!.Country);
+    }
+
+    private static async Task<(bool Called, EventQueue Queue)> RunMiddleware(
+        Action<HttpContext> request, int status = 200, string contentType = "text/html; charset=utf-8")
+    {
+        var rig = new Rig(o => o.Mode = CollectionMode.Middleware);
+        var queue = new EventQueue(Microsoft.Extensions.Options.Options.Create(rig.Options));
+        bool called = false;
+        var middleware = new CollectMiddleware(ctx =>
+        {
+            called = true;
+            ctx.Response.StatusCode = status;
+            ctx.Response.ContentType = contentType;
+            return Task.CompletedTask;
+        });
+        DefaultHttpContext http = Request("203.0.113.7");
+        http.Request.Method = "GET";
+        http.Request.Path = "/page";
+        request(http);
+        await middleware.InvokeAsync(
+            http, Microsoft.Extensions.Options.Options.Create(rig.Options), rig.Collector, queue,
+            DispatchProxy.Create<IRuntimeState, RuntimeProxy>());
+        return (called, queue);
+    }
+
+    [Fact]
+    public async Task Middleware_records_a_200_html_get()
+    {
+        (bool called, EventQueue queue) = await RunMiddleware(_ => { });
+        Assert.True(called);
+        Assert.True(queue.Reader.TryRead(out Hit? hit));
+        Assert.Equal("/page", hit!.Path);
+    }
+
+    [Fact]
+    public async Task Middleware_skips_a_404()
+    {
+        (bool called, EventQueue queue) = await RunMiddleware(_ => { }, status: 404);
+        Assert.True(called);
+        Assert.False(queue.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task Middleware_skips_json()
+    {
+        (_, EventQueue queue) = await RunMiddleware(_ => { }, contentType: "application/json");
+        Assert.False(queue.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task Middleware_skips_a_post()
+    {
+        (bool called, EventQueue queue) = await RunMiddleware(h => h.Request.Method = "POST");
+        Assert.True(called);
+        Assert.False(queue.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public async Task Middleware_skips_an_image_fetch()
+    {
+        (_, EventQueue queue) = await RunMiddleware(h => h.Request.Headers["Sec-Fetch-Dest"] = "image");
+        Assert.False(queue.Reader.TryRead(out _));
+    }
+
+    [Fact]
+    public void Analytics_controller_requires_content_section_access()
+    {
+        var attributes = typeof(AnalyticsController).GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false);
+        var own = Assert.IsType<AuthorizeAttribute>(Assert.Single(attributes));
+        Assert.Equal(AuthorizationPolicies.SectionAccessContent, own.Policy);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(8)]
+    [InlineData(365)]
+    [InlineData(-1)]
+    public void Analytics_controller_rejects_other_ranges(int days)
+    {
+        // The range check runs before the service is used.
+        var controller = new AnalyticsController(new BaryoDev.Umbraco.Analytics.Stats.StatsService(null!, TimeProvider.System));
+        Assert.IsType<BadRequestObjectResult>(controller.GetSummary(days));
     }
 }
