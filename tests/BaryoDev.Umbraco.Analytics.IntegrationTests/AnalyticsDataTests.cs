@@ -49,11 +49,8 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
         var runner = Services.GetRequiredService<PackageMigrationRunner>();
         await runner.RunPackageMigrationsIfPendingAsync("BaryoDev.Umbraco.Analytics");
 
-        if (!TableExists(EventRow.TableName) || !TableExists(DailyRow.TableName))
-        {
-            var executor = Services.GetRequiredService<IMigrationPlanExecutor>();
-            await executor.ExecutePlanAsync(new AnalyticsMigrationPlan(), string.Empty);
-        }
+        Assert.That(TableExists(EventRow.TableName), Is.True);
+        Assert.That(TableExists(DailyRow.TableName), Is.True);
     }
 
     private bool TableExists(string name)
@@ -121,6 +118,15 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
     private RetentionJob Job() => new(
         ScopeProvider, DispatchProxy.Create<IRuntimeState, RuntimeProxy>(), GetRequiredService<IServerRoleAccessor>(),
         Opts, _time, NullLogger<RetentionJob>.Instance);
+
+    [TestCase(7)]
+    [TestCase(30)]
+    [TestCase(90)]
+    public void Api_accepts_the_three_ranges(int days)
+    {
+        var controller = new BaryoDev.Umbraco.Analytics.Api.AnalyticsController(Stats());
+        Assert.That(controller.GetSummary(days), Is.TypeOf<Microsoft.AspNetCore.Mvc.OkObjectResult>());
+    }
 
     private StatsService Stats() => new(ScopeProvider, _time);
 
