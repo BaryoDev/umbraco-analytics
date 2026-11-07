@@ -23,12 +23,13 @@ public class CollectorTests
     private sealed class Rig
     {
         public AnalyticsOptions Options { get; } = new() { Secret = "test-secret", CountryHeader = "" };
-        public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
+        public FakeTimeProvider Time { get; }
         public Collector Collector { get; }
         public RateLimiter Limiter { get; }
 
-        public Rig(Action<AnalyticsOptions>? configure = null)
+        public Rig(Action<AnalyticsOptions>? configure = null, DateTimeOffset? start = null)
         {
+            Time = new FakeTimeProvider(start ?? new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
             configure?.Invoke(Options);
             var opts = Microsoft.Extensions.Options.Options.Create(Options);
             // A configured secret means the key-value store and scopes are never touched.
@@ -65,15 +66,20 @@ public class CollectorTests
         rig.Time.SetUtcNow(new DateTimeOffset(2026, 11, 28, 23, 0, 0, TimeSpan.Zero));
         Assert.Equal(first, rig.Visitor("203.0.113.7"));
 
+        rig.Time.SetUtcNow(new DateTimeOffset(2026, 11, 30, 23, 59, 59, TimeSpan.Zero));
+        string lastSecond = rig.Visitor("203.0.113.7");
+        Assert.Equal(first, lastSecond);
+
         rig.Time.SetUtcNow(new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero));
-        Assert.NotEqual(first, rig.Visitor("203.0.113.7"));
+        string nextMonth = rig.Visitor("203.0.113.7");
+        Assert.NotEqual(first, nextMonth);
+        Assert.NotEqual(lastSecond, nextMonth);
     }
 
     [Fact]
     public void Daily_rotation_changes_the_hash_at_utc_midnight()
     {
-        var rig = new Rig(o => o.SaltRotation = SaltRotation.Daily);
-        rig.Time.SetUtcNow(new DateTimeOffset(2026, 11, 3, 0, 0, 0, TimeSpan.Zero));
+        var rig = new Rig(o => o.SaltRotation = SaltRotation.Daily, new DateTimeOffset(2026, 11, 3, 0, 0, 0, TimeSpan.Zero));
         string morning = rig.Visitor("203.0.113.7");
 
         rig.Time.SetUtcNow(new DateTimeOffset(2026, 11, 3, 23, 59, 59, TimeSpan.Zero));
@@ -178,6 +184,17 @@ public class CollectorTests
         Assert.NotEqual(asClaimed, forged);
     }
 
+    [Fact]
+    public void Forwarded_header_is_ignored_by_default()
+    {
+        var rig = new Rig();
+
+        string forged = rig.Visitor("9.9.9.9", h => h.Request.Headers["X-Forwarded-For"] = "1.1.1.1");
+
+        Assert.Equal(rig.Visitor("9.9.9.9"), forged);
+        Assert.NotEqual(rig.Visitor("1.1.1.1"), forged);
+    }
+
     [Theory]
     [InlineData("1.1.1.1, 10.0.0.5")]
     [InlineData("6.6.6.6, 1.1.1.1, 10.0.0.5")]
@@ -222,7 +239,7 @@ public class CollectorTests
         Assert.Equal(rig.Visitor("1.1.1.1"), viaProxy);
     }
 
-    private sealed class RuntimeProxy : DispatchProxy
+    public class RuntimeProxy : DispatchProxy
     {
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
