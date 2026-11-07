@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <EnableNUnitRunner>true</EnableNUnitRunner>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Umbraco.Cms.Tests.Integration" Version="17.8.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="5.*" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.Tests.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/BaryoDev.Umbraco.Analytics/BaryoDev.Umbraco.Analytics.csproj" />
+  </ItemGroup>
+
+  <!-- Umbraco's test server looks for Umbraco.Tests.Integration.deps.json next to the test assembly. -->
+  <Target Name="CopyUmbracoTestDeps" AfterTargets="Build" Condition="Exists('$(OutDir)$(AssemblyName).deps.json')">
+    <Copy SourceFiles="$(OutDir)$(AssemblyName).deps.json" DestinationFiles="$(OutDir)Umbraco.Tests.Integration.deps.json" />
+  </Target>
+
+</Project>

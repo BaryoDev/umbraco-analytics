@@ -6,8 +6,8 @@
     <Description>Cookie-free page view analytics for Umbraco 17, stored in the site's own database. No second database, no raw IP or User-Agent kept.</Description>
     <PackageTags>umbraco umbraco-marketplace analytics privacy page-views cookie-free</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/BaryoDev/umbraco-analytics</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/BaryoDev/umbraco-analytics</RepositoryUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
@@ -18,6 +18,10 @@
   <ItemGroup>
     <PackageReference Include="Umbraco.Cms.Web.Common" Version="[17.8.1,18.0.0)" />
     <PackageReference Include="Umbraco.Cms.Api.Management" Version="[17.8.1,18.0.0)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BaryoDev.Umbraco.Analytics.Tests" />
+    <InternalsVisibleTo Include="BaryoDev.Umbraco.Analytics.IntegrationTests" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
