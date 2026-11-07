@@ -2,4 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/BaryoDev.Umbraco.Analytics/BaryoDev.Umbraco.Analytics.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BaryoDev.Umbraco.Analytics.Tests/BaryoDev.Umbraco.Analytics.Tests.csproj" />
+    <Project Path="tests/BaryoDev.Umbraco.Analytics.IntegrationTests/BaryoDev.Umbraco.Analytics.IntegrationTests.csproj" />
+  </Folder>
 </Solution>
