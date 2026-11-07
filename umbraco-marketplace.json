@@ -9,8 +9,8 @@
     "Url": "https://github.com/BaryoDev",
     "ImageUrl": "https://raw.githubusercontent.com/BaryoDev/BaryoDev.Umbraco.Analytics/main/icon.png"
   },
-  "DocumentationUrl": "https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics#readme",
-  "IssueTrackerUrl": "https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics/issues",
+  "DocumentationUrl": "https://github.com/BaryoDev/umbraco-analytics#readme",
+  "IssueTrackerUrl": "https://github.com/BaryoDev/umbraco-analytics/issues",
   "LicenseTypes": [ "Free" ],
   "Tags": [
     "analytics",

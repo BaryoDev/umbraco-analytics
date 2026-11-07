@@ -6,8 +6,8 @@
     <Description>Cookie-free page view analytics for Umbraco 17, stored in the site's own database. No second database, no raw IP or User-Agent kept.</Description>
     <PackageTags>umbraco umbraco-marketplace analytics privacy page-views cookie-free</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/BaryoDev/BaryoDev.Umbraco.Analytics</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/BaryoDev/umbraco-analytics</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/BaryoDev/umbraco-analytics</RepositoryUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
