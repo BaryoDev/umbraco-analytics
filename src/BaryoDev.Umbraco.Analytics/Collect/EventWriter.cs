@@ -14,6 +14,7 @@ public sealed class EventWriter(
     IOptions<AnalyticsOptions> options, ILogger<EventWriter> logger) : BackgroundService
 {
     private const int BatchSize = 200;
+    internal const int MaxRecent = 20_000;
     private readonly Dictionary<string, (string VisitId, DateTime Last)> _recent = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -105,12 +106,25 @@ public sealed class EventWriter(
         }
         scope.Complete();
 
-        if (_recent.Count > 20000)
+        Prune(_recent, DateTime.UtcNow - idle, MaxRecent);
+    }
+
+    /// <summary>Drops visitors idle past the cutoff, then the least recent ones, so the map never stays above the cap.</summary>
+    internal static void Prune(Dictionary<string, (string VisitId, DateTime Last)> recent, DateTime cutoff, int max)
+    {
+        if (recent.Count <= max)
         {
-            DateTime cutoff = DateTime.UtcNow - idle;
-            foreach (string k in _recent.Where(p => p.Value.Last < cutoff).Select(p => p.Key).ToList())
+            return;
+        }
+        foreach (string k in recent.Where(p => p.Value.Last < cutoff).Select(p => p.Key).ToList())
+        {
+            recent.Remove(k);
+        }
+        if (recent.Count > max)
+        {
+            foreach (string k in recent.OrderBy(p => p.Value.Last).Take(recent.Count - max).Select(p => p.Key).ToList())
             {
-                _recent.Remove(k);
+                recent.Remove(k);
             }
         }
     }

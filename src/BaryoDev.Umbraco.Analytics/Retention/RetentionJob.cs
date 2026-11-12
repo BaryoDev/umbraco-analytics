@@ -10,7 +10,10 @@ using Umbraco.Cms.Infrastructure.Scoping;
 
 namespace BaryoDev.Umbraco.Analytics.Retention;
 
-/// <summary>Rolls raw events older than RetentionDays into daily rows, then deletes them.</summary>
+/// <summary>
+/// Rolls raw events older than RetentionDays into daily rows, then deletes them. The per-value page and referrer
+/// daily rows are deleted once they are another RetentionDays old. Totals, device, browser and country rows stay.
+/// </summary>
 public sealed class RetentionJob(
     IScopeProvider scopes, IRuntimeState runtime, IServerRoleAccessor roles,
     IOptions<AnalyticsOptions> options, TimeProvider clock, ILogger<RetentionJob> logger) : BackgroundService
@@ -70,10 +73,35 @@ public sealed class RetentionJob(
         {
             logger.LogInformation("Analytics rolled up {Count} days older than {Cutoff:yyyy-MM-dd}.", days.Count, cutoff);
         }
+        PurgeOldValues(cutoff.AddDays(-Math.Max(1, options.Value.RetentionDays)));
         return days.Count;
     }
 
+    /// <summary>Paths and referrer hosts can hold personal data, so their daily rows do not live forever.</summary>
+    private void PurgeOldValues(DateTime horizon)
+    {
+        int purged = 0;
+        while (true)
+        {
+            using var scope = scopes.CreateScope();
+            var ids = scope.Database.SkipTake<long>(0, DeleteChunk,
+                $"SELECT Id FROM {DailyRow.TableName} WHERE Day < @0 AND Dimension IN ('page', 'referrer') ORDER BY Id", horizon);
+            if (ids.Count == 0)
+            {
+                break;
+            }
+            scope.Database.Execute($"DELETE FROM {DailyRow.TableName} WHERE Id IN (@ids)", new { ids });
+            scope.Complete();
+            purged += ids.Count;
+        }
+        if (purged > 0)
+        {
+            logger.LogInformation("Analytics deleted {Count} page and referrer daily rows older than {Horizon:yyyy-MM-dd}.", purged, horizon);
+        }
+    }
+
     private const int DeleteChunk = 1000;
+    private const int InsertChunk = 200;
 
     private void RollUp(DateTime day)
     {
@@ -90,9 +118,13 @@ public sealed class RetentionJob(
                 {
                     var rows = db.Fetch<CountRow>(
                         $"SELECT {column} AS Value, {counts} FROM {EventRow.TableName} WHERE Day = @0 GROUP BY {column}", day);
-                    foreach (CountRow r in rows)
+                    // Multi-row inserts in chunks, not one statement per value.
+                    foreach (var chunk in rows.Chunk(InsertChunk))
                     {
-                        db.Insert(new DailyRow { Day = day, Dimension = dimension, Value = r.Value, Visitors = r.Visitors, Visits = r.Visits, PageViews = r.PageViews });
+                        db.InsertBulk(chunk.Select(r => new DailyRow
+                        {
+                            Day = day, Dimension = dimension, Value = r.Value, Visitors = r.Visitors, Visits = r.Visits, PageViews = r.PageViews,
+                        }));
                     }
                 }
                 var total = db.Fetch<CountRow>($"SELECT {counts} FROM {EventRow.TableName} WHERE Day = @0", day).First();

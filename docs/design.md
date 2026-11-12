@@ -40,6 +40,8 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco. Creat
 
 A background job (every 6 hours, single or scheduling server only) handles every day older than `RetentionDays` (default 395, minimum 1). For each day it first writes the daily rows in one transaction. The `total` row is written last and marks the day as rolled. Then it deletes the raw events in chunks of 1,000, so the writer is not blocked. If the job stops halfway, the next run sees the `total` row and only finishes deleting. A late event for an already rolled day is deleted without being counted.
 
+Daily `page` and `referrer` rows older than twice `RetentionDays` are deleted in chunks of 1,000, because paths and referrer hosts can hold personal data. The `total`, device, browser and country rows stay. The daily rows are written with multi-row inserts of 200.
+
 The dashboard reads raw events for days with no `total` row and daily rows for the rest, so changing `RetentionDays` leaves no gap and no double count. Visitors and visits are summed per day on rolled days, and a visit that crosses UTC midnight counts once per day. A range that includes rolled days over-counts people who came back on several days. Ranges of 7, 30 and 90 days stay inside the default retention and are exact. Top lists are ranked and limited in SQL. The path is stored as received, so grouping follows the database collation (case-insensitive on SQL Server, case-sensitive on SQLite).
 
 ## Dashboard

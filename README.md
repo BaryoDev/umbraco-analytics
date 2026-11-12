@@ -38,7 +38,7 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `Secret` | generated | Server secret. If empty, one is generated on first run and kept in the Umbraco key-value store. Set it from an environment variable or a secret store, never commit it |
 | `SaltRotation` | `Monthly` | `Monthly`, `Daily` or `Cookie` |
 | `VisitIdleMinutes` | `30` | Idle time that ends a visit |
-| `RetentionDays` | `395` | Raw events older than this are rolled into daily totals and deleted |
+| `RetentionDays` | `395` | Raw events older than this are rolled into daily totals and deleted. Daily page and referrer rows are deleted after another `RetentionDays`. Totals, device, browser and country rows are kept |
 | `RespectDoNotTrack` | `true` | Skip requests with `DNT: 1` |
 | `RespectGlobalPrivacyControl` | `true` | Skip requests with `Sec-GPC: 1` |
 | `CountryHeader` | `CF-IPCountry` | Country is stored only if this header is present |
@@ -52,14 +52,14 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.
 
-Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first.
+Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first. A warning is logged for each minute where every hit came from one address and none carried a forwarded header.
 
 ## Privacy model
 
 - The visitor id is `SHA-256(siteKey, IP, User-Agent, salt, secret)`, cut to 32 hex characters. The salt changes every month (or day), so ids do not carry over.
 - The raw IP and User-Agent are not stored. The event table has no column for them.
 - No cookie is set unless `SaltRotation` is `Cookie`. That mode uses a random first-party id cookie and stores only its hash.
-- The stored path is the page path as typed, without the query string or fragment. If your URLs carry tokens or emails in the path, they are stored for the retention period, so use `ExcludedPaths` for those routes. The referrer is kept as a host and the UTM values as sent.
+- The stored path is the page path as typed, without the query string or fragment. If your URLs carry tokens or emails in the path, the raw rows keep them for `RetentionDays`, and the daily page and referrer rows for another `RetentionDays` after that, then they are deleted. Use `ExcludedPaths` for those routes. The referrer is kept as a host and the UTM values as sent.
 - The path loses its query string. The referrer is kept as a host. Only the three `utm_` values are kept from the query.
 - Device class and browser family come from the User-Agent and are stored as short labels.
 - A generated secret lives in the same database as the events. Set `Secret` from an environment variable or a secret store if you want it kept apart.

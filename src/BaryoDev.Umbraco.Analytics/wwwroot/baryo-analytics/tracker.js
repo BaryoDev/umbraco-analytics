@@ -1,4 +1,5 @@
-// BaryoDev.Umbraco.Analytics tracker. No cookies, no storage. Sends the path, referrer and query string.
+// BaryoDev.Umbraco.Analytics tracker. This script sets no cookies and uses no storage. Sends the path, referrer and query string.
+// In Cookie salt mode the server sets a first-party id cookie on the beacon response.
 (function () {
   var script = document.currentScript;
   var endpoint = (script && script.getAttribute("data-endpoint")) ||
