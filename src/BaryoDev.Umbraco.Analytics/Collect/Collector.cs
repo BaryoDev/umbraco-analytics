@@ -15,6 +15,7 @@ public sealed partial class Collector(
     private const string CookieItem = "BaryoDev.Analytics.Cookie";
     private int _failureLogged;
     private int _proxyWarned;
+    private readonly SingleSourceWatch _watch = new(clock, logger);
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
     private static partial Regex CookieShape();
@@ -118,6 +119,12 @@ public sealed partial class Collector(
 
         string ip = ClientIp(http, o);
         // With no usable address there is nothing fair to key the limit on, so it is skipped.
+        if (ip.Length > 0)
+        {
+            bool forwarded = http.Request.Headers.ContainsKey("X-Forwarded-For")
+                || (!string.IsNullOrWhiteSpace(o.ClientIpHeader) && http.Request.Headers.ContainsKey(o.ClientIpHeader));
+            _watch.Record(ip, forwarded);
+        }
         if (ip.Length > 0 && !limiter.Allow(ip))
         {
             return null;
