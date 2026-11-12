@@ -16,7 +16,7 @@ internal sealed class SingleSourceWatch(TimeProvider clock, ILogger logger)
     private string? _first;
     private bool _many;
     private bool _forwarded;
-    private long _lastWarned = long.MinValue;
+    private long _lastWarned = -1_000_000;
 
     public void Record(string ip, bool forwardedHeaderPresent)
     {
