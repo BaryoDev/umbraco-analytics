@@ -42,6 +42,25 @@ public class SingleSourceWatchTests
     }
 
     [Fact]
+    public void The_warning_repeats_at_most_once_an_hour()
+    {
+        var (watch, log, time) = Create();
+        // 130 consecutive single-source minutes.
+        for (int minute = 0; minute < 130; minute++)
+        {
+            for (int i = 0; i < SingleSourceWatch.MinHits; i++)
+            {
+                watch.Record("10.0.0.1", false);
+            }
+            time.Advance(TimeSpan.FromMinutes(1));
+        }
+        watch.Record("10.0.0.1", false);
+
+        // Judged at minutes 1, 61 and 121.
+        Assert.Equal(3, log.Levels.Count);
+    }
+
+    [Fact]
     public void Several_addresses_a_forwarded_header_or_a_quiet_minute_do_not_warn()
     {
         var (watch, log, time) = Create();

@@ -118,10 +118,10 @@ public sealed class RetentionJob(
                 {
                     var rows = db.Fetch<CountRow>(
                         $"SELECT {column} AS Value, {counts} FROM {EventRow.TableName} WHERE Day = @0 GROUP BY {column}", day);
-                    // Multi-row inserts in chunks, not one statement per value.
+                    // Umbraco's bulk insert, which works on SQL Server and SQLite. Chunked, not one statement per value.
                     foreach (var chunk in rows.Chunk(InsertChunk))
                     {
-                        db.InsertBulk(chunk.Select(r => new DailyRow
+                        db.BulkInsertRecords(chunk.Select(r => new DailyRow
                         {
                             Day = day, Dimension = dimension, Value = r.Value, Visitors = r.Visitors, Visits = r.Visits, PageViews = r.PageViews,
                         }));

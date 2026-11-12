@@ -52,7 +52,7 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.
 
-Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first. A warning is logged for each minute where every hit came from one address and none carried a forwarded header.
+Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first. A warning is logged (at most once an hour) when a whole minute of hits came from one address and none carried a forwarded header.
 
 ## Privacy model
 

@@ -4,7 +4,7 @@ namespace BaryoDev.Umbraco.Analytics.Collect;
 
 /// <summary>
 /// Warns when a whole minute of hits came from one address and none carried a forwarded header. That is what a
-/// reverse proxy or CDN with no forwarded headers configured looks like. One warning per such minute, no address logged.
+/// reverse proxy or CDN with no forwarded headers configured looks like. The minute is judged as a window, but a warning is logged at most once an hour. No address is logged.
 /// </summary>
 internal sealed class SingleSourceWatch(TimeProvider clock, ILogger logger)
 {
@@ -16,6 +16,7 @@ internal sealed class SingleSourceWatch(TimeProvider clock, ILogger logger)
     private string? _first;
     private bool _many;
     private bool _forwarded;
+    private long _lastWarned = long.MinValue;
 
     public void Record(string ip, bool forwardedHeaderPresent)
     {
@@ -24,8 +25,9 @@ internal sealed class SingleSourceWatch(TimeProvider clock, ILogger logger)
         {
             if (window != _window)
             {
-                if (_hits >= MinHits && !_many && !_forwarded)
+                if (_hits >= MinHits && !_many && !_forwarded && window - _lastWarned >= 60)
                 {
+                    _lastWarned = window;
                     logger.LogWarning(
                         "All {Count} analytics hits in the last minute came from one address and none had a forwarded header. " +
                         "If the site is behind a proxy or CDN, configure ASP.NET Core forwarded headers, or ClientIpHeader with TrustedProxies. " +
