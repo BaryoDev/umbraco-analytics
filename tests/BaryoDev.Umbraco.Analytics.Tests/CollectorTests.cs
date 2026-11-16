@@ -29,7 +29,7 @@ public class CollectorTests
         public Collector Collector { get; }
         public RateLimiter Limiter { get; }
 
-        public Rig(Action<AnalyticsOptions>? configure = null, DateTimeOffset? start = null)
+        public Rig(Action<AnalyticsOptions>? configure = null, DateTimeOffset? start = null, ListLogger? logger = null)
         {
             Time = new FakeTimeProvider(start ?? new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
             configure?.Invoke(Options);
@@ -37,7 +37,7 @@ public class CollectorTests
             // A configured secret means the key-value store and scopes are never touched.
             var secrets = new SecretProvider(opts, null!, null!);
             Limiter = new RateLimiter(opts, secrets, Time);
-            Collector = new Collector(opts, secrets, Limiter, Time, NullLogger<Collector>.Instance);
+            Collector = new Collector(opts, secrets, Limiter, Time, (Microsoft.Extensions.Logging.ILogger<Collector>?)logger ?? NullLogger<Collector>.Instance);
         }
 
         public Hit? Hit(string remote, Action<HttpContext>? tweak = null, string path = "/page")
@@ -254,36 +254,51 @@ public class CollectorTests
         }
     }
 
-    [Fact]
-    public async Task Script_path_is_percent_decoded()
+    public class UrlProxy : DispatchProxy
     {
-        var rig = new Rig(o => o.Mode = CollectionMode.Script);
-        var queue = new EventQueue(Microsoft.Extensions.Options.Options.Create(rig.Options));
-        var controller = new CollectController(
-            Microsoft.Extensions.Options.Options.Create(rig.Options), rig.Collector, queue,
-            new ContentKeyResolver(null!), DispatchProxy.Create<IRuntimeState, RuntimeProxy>());
+        public Guid? Key { get; set; }
 
-        byte[] body = Encoding.UTF8.GetBytes("""{"p":"/caf%C3%A9/a%20b"}""");
-        DefaultHttpContext http = Request("203.0.113.7");
-        http.Request.Body = new MemoryStream(body);
-        http.Request.ContentLength = body.Length;
-        controller.ControllerContext = new ControllerContext(new ActionContext(
-            http, new RouteData(), new ControllerActionDescriptor { ControllerName = "Collect", ActionName = "Collect" }));
-
-        IActionResult result = await controller.Collect(CancellationToken.None);
-
-        Assert.IsType<AcceptedResult>(result);
-        Assert.True(queue.Reader.TryRead(out Hit? hit));
-        Assert.Equal("/café/a b", hit!.Path);
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == "GetDocumentKeyByRoute" ? Key : null;
     }
 
-    private static (CollectController Controller, EventQueue Queue) ScriptController(DefaultHttpContext http)
+    private static ContentKeyResolver ResolverReturning(Guid? key)
     {
-        var rig = new Rig(o => o.Mode = CollectionMode.Script);
+        var proxy = DispatchProxy.Create<IDocumentUrlService, UrlProxy>();
+        ((UrlProxy)(object)proxy).Key = key;
+        return new ContentKeyResolver(proxy);
+    }
+
+    // A beacon from a page on the same host. Tests that want another source change the headers.
+    private static DefaultHttpContext SameSiteBeacon(string json, Action<HttpContext>? tweak = null)
+    {
+        byte[] body = Encoding.UTF8.GetBytes(json);
+        DefaultHttpContext http = Request("203.0.113.7");
+        http.Request.Host = new HostString("example.com");
+        http.Request.Headers.Origin = "https://example.com";
+        http.Request.Body = new MemoryStream(body);
+        http.Request.ContentLength = body.Length;
+        tweak?.Invoke(http);
+        return http;
+    }
+
+    private static async Task<Hit?> Beacon(
+        DefaultHttpContext http, Action<AnalyticsOptions>? configure = null, Guid? key = null, ListLogger? logger = null)
+    {
+        (CollectController controller, EventQueue queue) = ScriptController(http, configure, key, logger);
+        IActionResult result = await controller.Collect(CancellationToken.None);
+        Assert.IsType<AcceptedResult>(result);
+        return queue.Reader.TryRead(out Hit? hit) ? hit : null;
+    }
+
+    private static (CollectController Controller, EventQueue Queue) ScriptController(
+        DefaultHttpContext http, Action<AnalyticsOptions>? configure = null, Guid? key = null, ListLogger? logger = null)
+    {
+        var rig = new Rig(o => { o.Mode = CollectionMode.Script; configure?.Invoke(o); }, logger: logger);
         var queue = new EventQueue(Microsoft.Extensions.Options.Options.Create(rig.Options));
         var controller = new CollectController(
             Microsoft.Extensions.Options.Options.Create(rig.Options), rig.Collector, queue,
-            new ContentKeyResolver(null!), DispatchProxy.Create<IRuntimeState, RuntimeProxy>());
+            key is null ? new ContentKeyResolver(null!) : ResolverReturning(key), DispatchProxy.Create<IRuntimeState, RuntimeProxy>());
         controller.ControllerContext = new ControllerContext(new ActionContext(
             http, new RouteData(), new ControllerActionDescriptor { ControllerName = "Collect", ActionName = "Collect" }));
         return (controller, queue);
@@ -291,7 +306,7 @@ public class CollectorTests
 
     private static async Task AssertBeaconDropped(Stream body, long? contentLength)
     {
-        DefaultHttpContext http = Request("203.0.113.7");
+        DefaultHttpContext http = SameSiteBeacon("{}");
         http.Request.Body = body;
         http.Request.ContentLength = contentLength;
         (CollectController controller, EventQueue queue) = ScriptController(http);
@@ -301,6 +316,193 @@ public class CollectorTests
         Assert.IsType<AcceptedResult>(result);
         Assert.False(queue.Reader.TryRead(out _));
     }
+
+    [Fact]
+    public async Task Script_path_is_percent_decoded()
+    {
+        Hit? hit = await Beacon(SameSiteBeacon("""{"p":"/caf%C3%A9/a%20b"}"""));
+        Assert.Equal("/café/a b", hit!.Path);
+    }
+
+    private const string PageJson = """{"p":"/page"}""";
+
+    [Fact]
+    public async Task Beacon_from_the_same_host_origin_is_accepted()
+        => Assert.NotNull(await Beacon(SameSiteBeacon(PageJson)));
+
+    [Fact]
+    public async Task Beacon_origin_host_match_ignores_case_and_port()
+        => Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, h => h.Request.Headers.Origin = "https://EXAMPLE.com:8443")));
+
+    [Fact]
+    public async Task Beacon_from_another_host_is_dropped()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson, h => h.Request.Headers.Origin = "https://evil.example")));
+
+    [Fact]
+    public async Task Beacon_with_no_origin_or_referer_is_dropped()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson, h => h.Request.Headers.Remove("Origin"))));
+
+    [Fact]
+    public async Task Beacon_with_a_null_origin_is_dropped()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson, h => h.Request.Headers.Origin = "null")));
+
+    [Fact]
+    public async Task Referer_is_used_when_origin_is_absent()
+    {
+        Action<HttpContext> referer = h =>
+        {
+            h.Request.Headers.Remove("Origin");
+            h.Request.Headers.Referer = "https://example.com/some/page?x=1";
+        };
+        Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, referer)));
+    }
+
+    [Fact]
+    public async Task Referer_from_another_host_is_dropped()
+    {
+        Action<HttpContext> referer = h =>
+        {
+            h.Request.Headers.Remove("Origin");
+            h.Request.Headers.Referer = "https://evil.example/page";
+        };
+        Assert.Null(await Beacon(SameSiteBeacon(PageJson, referer)));
+    }
+
+    [Fact]
+    public async Task Origin_wins_over_a_matching_referer()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson, h =>
+        {
+            h.Request.Headers.Origin = "https://evil.example";
+            h.Request.Headers.Referer = "https://example.com/page";
+        })));
+
+    [Theory]
+    [InlineData("https://other.example")]
+    [InlineData("other.example")]
+    public async Task Allowed_origins_accept_an_extra_host(string entry)
+    {
+        Action<HttpContext> tweak = h => h.Request.Headers.Origin = "https://other.example";
+        Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, tweak), o => o.AllowedOrigins.Add(entry)));
+        Assert.Null(await Beacon(SameSiteBeacon(PageJson, tweak)));
+    }
+
+    [Theory]
+    [InlineData("localhost:5000")]
+    [InlineData("localhost")]
+    [InlineData("http://localhost:5000")]
+    public async Task Allowed_origins_match_host_port_and_bare_host(string entry)
+    {
+        Action<HttpContext> tweak = h => h.Request.Headers.Origin = "http://localhost:5000";
+        Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, tweak), o => o.AllowedOrigins.Add(entry)));
+    }
+
+    private static Action<HttpContext> BehindProxy(bool secFetch) => h =>
+    {
+        h.Request.Host = new HostString("backend:8080");
+        h.Request.Headers.Origin = "https://www.site.example";
+        if (secFetch)
+        {
+            h.Request.Headers["Sec-Fetch-Site"] = "same-origin";
+        }
+    };
+
+    [Fact]
+    public async Task Same_origin_fetch_metadata_is_recorded_when_the_proxy_rewrites_host()
+        => Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, BehindProxy(true))));
+
+    [Fact]
+    public async Task Rewritten_host_without_fetch_metadata_is_dropped_and_warned_once()
+    {
+        Assert.Null(await Beacon(SameSiteBeacon(PageJson, BehindProxy(false))));
+
+        // Collector is a singleton in production, so both drops go through one instance.
+        var logger = new ListLogger();
+        var rig = new Rig(logger: logger);
+        Assert.False(rig.Collector.AcceptBeacon(SameSiteBeacon(PageJson, BehindProxy(false))));
+        Assert.False(rig.Collector.AcceptBeacon(SameSiteBeacon(PageJson, BehindProxy(false))));
+        string warning = Assert.Single(logger.Warnings);
+        Assert.Contains("backend", warning);
+        Assert.Contains("www.site.example", warning);
+        Assert.Contains("XForwardedHost", warning);
+    }
+
+    [Fact]
+    public async Task Same_origin_fetch_metadata_is_recorded_with_a_null_origin_and_no_referer()
+        => Assert.NotNull(await Beacon(SameSiteBeacon(PageJson, h =>
+        {
+            h.Request.Headers.Origin = "null";
+            h.Request.Headers["Sec-Fetch-Site"] = "same-origin";
+        })));
+
+    [Fact]
+    public async Task Cross_site_fetch_metadata_with_a_foreign_origin_is_dropped()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson, h =>
+        {
+            h.Request.Headers.Origin = "https://evil.example";
+            h.Request.Headers["Sec-Fetch-Site"] = "cross-site";
+        })));
+
+    [Fact]
+    public async Task Published_content_is_not_required_by_default()
+        => Assert.NotNull(await Beacon(SameSiteBeacon(PageJson)));
+
+    [Fact]
+    public async Task Required_published_content_drops_an_unresolved_path()
+        => Assert.Null(await Beacon(SameSiteBeacon(PageJson), o => o.RequirePublishedContent = true));
+
+    [Fact]
+    public async Task Required_published_content_keeps_a_resolved_path()
+    {
+        var key = Guid.NewGuid();
+        Hit? hit = await Beacon(SameSiteBeacon(PageJson), o => o.RequirePublishedContent = true, key);
+        Assert.Equal(key, hit!.ContentKey);
+    }
+
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<Collector>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+    }
+
+    private static List<string> WarningsFor(string remote, Action<AnalyticsOptions>? configure = null)
+    {
+        var options = new AnalyticsOptions { Secret = "test-secret", CountryHeader = "" };
+        configure?.Invoke(options);
+        var opts = Microsoft.Extensions.Options.Options.Create(options);
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
+        var secrets = new SecretProvider(opts, null!, null!);
+        var logger = new ListLogger();
+        var collector = new Collector(opts, secrets, new RateLimiter(opts, secrets, time), time, logger);
+        collector.Build(Request(remote), "/page", null, null);
+        collector.Build(Request(remote), "/page", null, null);
+        return logger.Warnings;
+    }
+
+    [Theory]
+    [InlineData("10.0.0.5")]
+    [InlineData("172.20.1.9")]
+    [InlineData("192.168.1.2")]
+    [InlineData("127.0.0.1")]
+    [InlineData("fd00::1")]
+    [InlineData("::1")]
+    public void Private_remote_without_a_client_ip_header_warns_once(string remote)
+        => Assert.Single(WarningsFor(remote));
+
+    [Fact]
+    public void Public_remote_does_not_warn() => Assert.Empty(WarningsFor("203.0.113.7"));
+
+    [Fact]
+    public void Private_remote_with_a_client_ip_header_does_not_warn()
+        => Assert.Empty(WarningsFor("10.0.0.5", o => o.ClientIpHeader = "X-Real-IP"));
 
     [Fact]
     public async Task Beacon_over_4096_bytes_is_dropped()

@@ -49,10 +49,14 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `CookieName` | `ba_vid` | Cookie name in `Cookie` mode |
 | `RateLimitPerMinute` | `120` | Hits per client per minute. Extra hits are dropped. `0` turns it off. Tracks at most 50,000 clients per minute, then drops hits from new ones |
 | `QueueCapacity` | `10000` | Events held in memory before new ones are dropped |
+| `AllowedOrigins` | empty | Extra hosts whose pages may post beacons, for a site served on more than one domain. Hosts, `host:port` or full origins, for example `www.example.org` |
+| `RequirePublishedContent` | `false` | Script mode only. Drop a hit whose path does not resolve to published content. Also drops 404 and non-Umbraco routes, so it is off by default |
 
 `/umbraco`, `/App_Plugins` and `/baryo-analytics` paths are always skipped, and so are bots.
 
-Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first. A warning is logged (at most once an hour) when a whole minute of hits came from one address and none carried a forwarded header.
+A beacon is accepted when the browser sends `Sec-Fetch-Site: same-origin`, or when its `Origin` header (or `Referer` when `Origin` is absent) has the same host as the request, after forwarded headers. `Sec-Fetch-Site` is sent whatever the page's `Referrer-Policy`, so a `no-referrer` page is still counted, and it does not depend on the Host your proxy forwards. Otherwise the hit is dropped, the endpoint still answers 202, and one warning is logged per process. Behind a proxy that rewrites the Host header, keep the original Host, enable `XForwardedHost` in forwarded headers, or add the page host to `AllowedOrigins`. If the tracker is served from another domain than the pages, or the site has several domains, list the page hosts in `AllowedOrigins`. This stops casual cross-site junk. It does not stop a script that sets its own headers, so the rate limit still applies.
+
+Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientIpHeader` together with `TrustedProxies`. A header from any other source is ignored, so it cannot be forged. Otherwise all visitors share one address and count as one. With no usable address at all (no remote IP), the rate limit is skipped and a warning is logged once. If every visitor shares one proxy address, the limit of `RateLimitPerMinute` applies to the whole site, so fix the forwarded headers first. The rate limit stays on when there is no forwarded header: behind a proxy that sends no client IP header, every visitor shares one bucket, so raise `RateLimitPerMinute` or set `ClientIpHeader`. A warning is logged once when the connection address is private or loopback and `ClientIpHeader` is not set. A warning is logged (at most once an hour) when a whole minute of hits came from one address and none carried a forwarded header.
 
 ## Privacy model
 
@@ -69,7 +73,7 @@ Behind a reverse proxy, configure ASP.NET Core forwarded headers or set `ClientI
 
 ## Dashboard
 
-Visitors, visits and page views for 7, 30 or 90 days, a daily bar chart, top pages, top referrers, devices and browsers. Access follows the Content section.
+A Last 24 hours view with 24 hourly bars (shown in your local time), visitors, visits and page views, top pages and top referrers, read from the raw events. Visitors, visits and page views for 7, 30 or 90 days, a daily bar chart, top pages, top referrers, devices and browsers. Access follows the Content section.
 
 ## Build
 

@@ -16,6 +16,18 @@ public sealed record Summary(
     IReadOnlyList<Ranked> Browsers,
     IReadOnlyList<Ranked> Countries);
 
+/// <summary>One UTC hour. Hour is an ISO 8601 UTC instant such as 2026-11-07T13:00:00Z.</summary>
+public sealed record HourPoint(string Hour, int Visitors, int Visits, int PageViews);
+
+/// <summary>The rolling last 24 hours: 24 hourly buckets ending with the hour that holds now.</summary>
+public sealed record LastDay(
+    string From,
+    string To,
+    Totals Totals,
+    IReadOnlyList<HourPoint> Hourly,
+    IReadOnlyList<Ranked> TopPages,
+    IReadOnlyList<Ranked> TopReferrers);
+
 /// <summary>Row shape for the grouped SQL queries. Names match the select aliases.</summary>
 public sealed class CountRow
 {

@@ -15,6 +15,8 @@ public sealed partial class Collector(
     private const string CookieItem = "BaryoDev.Analytics.Cookie";
     private int _failureLogged;
     private int _proxyWarned;
+    private int _privateWarned;
+    private int _sameSiteWarned;
     private readonly SingleSourceWatch _watch = new(clock, logger);
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
@@ -256,6 +258,14 @@ public sealed partial class Collector(
                     "Configure ASP.NET Core forwarded headers, or ClientIpHeader with TrustedProxies. The rate limit is skipped without an address.");
             }
         }
+        if (remote is not null && string.IsNullOrWhiteSpace(o.ClientIpHeader) && IsPrivate(remote)
+            && Interlocked.Exchange(ref _privateWarned, 1) == 0)
+        {
+            logger.LogWarning(
+                "Analytics sees a private or loopback client address ({Address}) and ClientIpHeader is not set. " +
+                "If this site is behind a proxy that sends no client IP, all visitors share one rate limit bucket. " +
+                "Raise RateLimitPerMinute, set ClientIpHeader with TrustedProxies, or configure forwarded headers.", remote);
+        }
         if (string.IsNullOrWhiteSpace(o.ClientIpHeader) || remote is null)
         {
             return remote?.ToString() ?? string.Empty;
@@ -315,6 +325,87 @@ public sealed partial class Collector(
     }
 
     private static bool IsTrusted(IPAddress ip, IPNetwork[] trusted) => trusted.Any(n => n.Contains(ip));
+
+    private static bool IsPrivate(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+        byte[] b = ip.GetAddressBytes();
+        if (b.Length == 4)
+        {
+            return b[0] == 10 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168)
+                   || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] is >= 64 and <= 127);
+        }
+        return ip.IsIPv6LinkLocal || (b[0] & 0xFE) == 0xFC;
+    }
+
+    /// <summary>
+    /// Beacon policy: true when the browser says Sec-Fetch-Site same-origin, or when the Origin header
+    /// (Referer when Origin is absent) names the request host or an AllowedOrigins host.
+    /// </summary>
+    public bool IsSameSite(HttpContext http)
+    {
+        IHeaderDictionary h = http.Request.Headers;
+        if (h["Sec-Fetch-Site"].ToString().Trim().Equals("same-origin", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        string? host = HostOf(SourceHeader(h));
+        if (host is null)
+        {
+            return false;
+        }
+        if (host.Equals(http.Request.Host.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return options.Value.AllowedOrigins.Any(a => host.Equals(AllowedHost(a), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>IsSameSite, plus one warning per process the first time a beacon is dropped.</summary>
+    public bool AcceptBeacon(HttpContext http)
+    {
+        if (IsSameSite(http))
+        {
+            return true;
+        }
+        if (Interlocked.Exchange(ref _sameSiteWarned, 1) == 0)
+        {
+            logger.LogWarning(
+                "Analytics dropped a beacon: request host {RequestHost}, source host {SourceHost}. " +
+                "Keep the Host header through the proxy, enable XForwardedHost in forwarded headers, or add the page host to AllowedOrigins. " +
+                "This is logged once.",
+                http.Request.Host.Host, HostOf(SourceHeader(http.Request.Headers)) ?? "none");
+        }
+        return false;
+    }
+
+    private static string SourceHeader(IHeaderDictionary h)
+    {
+        string source = h.Origin.ToString();
+        return source.Length == 0 ? h.Referer.ToString() : source;
+    }
+
+    private static string AllowedHost(string entry)
+    {
+        string e = entry.Trim();
+        if (e.Contains("://", StringComparison.Ordinal))
+        {
+            return HostOf(e) ?? e;
+        }
+        if (e.StartsWith('['))
+        {
+            int close = e.IndexOf(']');
+            return close > 0 ? e[1..close] : e;
+        }
+        int colon = e.LastIndexOf(':');
+        return colon > 0 && e.IndexOf(':') == colon ? e[..colon] : e;
+    }
+
+    private static string? HostOf(string value)
+        => Uri.TryCreate(value.Trim(), UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" ? uri.Host : null;
 
     private static IPAddress? Unmap(IPAddress? ip) => ip is { IsIPv4MappedToIPv6: true } ? ip.MapToIPv4() : ip;
 

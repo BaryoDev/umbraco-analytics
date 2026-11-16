@@ -7,7 +7,7 @@ using Umbraco.Cms.Core.Services;
 
 namespace BaryoDev.Umbraco.Analytics.Api;
 
-/// <summary>Public beacon endpoint for script mode. Always answers 202 so the page never sees an error.</summary>
+/// <summary>Public beacon endpoint for script mode. Always answers 202 so the page never sees an error, including when a beacon is dropped.</summary>
 [ApiExplorerSettings(IgnoreApi = true)]
 public sealed class CollectController(
     IOptions<AnalyticsOptions> options, Collector collector, EventQueue queue,
@@ -19,7 +19,8 @@ public sealed class CollectController(
     public async Task<IActionResult> Collect(CancellationToken ct)
     {
         if (options.Value.Mode != CollectionMode.Script || runtime.Level != RuntimeLevel.Run
-            || Request.ContentLength is > MaxBody)
+            || Request.ContentLength is > MaxBody
+            || !collector.AcceptBeacon(HttpContext))
         {
             return Accepted();
         }
@@ -51,7 +52,12 @@ public sealed class CollectController(
             Hit? hit = collector.Build(HttpContext, Decode(path), Text(root, "r"), Text(root, "q"));
             if (hit is not null)
             {
-                queue.TryEnqueue(hit with { ContentKey = resolver.Resolve(hit.Path) });
+                Guid? key = resolver.Resolve(hit.Path);
+                if (key is null && options.Value.RequirePublishedContent)
+                {
+                    return Accepted();
+                }
+                queue.TryEnqueue(hit with { ContentKey = key });
             }
         }
         catch (Exception)
