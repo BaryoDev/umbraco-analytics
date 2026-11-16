@@ -413,9 +413,13 @@ public class CollectorTests
     [Fact]
     public async Task Rewritten_host_without_fetch_metadata_is_dropped_and_warned_once()
     {
+        Assert.Null(await Beacon(SameSiteBeacon(PageJson, BehindProxy(false))));
+
+        // Collector is a singleton in production, so both drops go through one instance.
         var logger = new ListLogger();
-        Assert.Null(await Beacon(SameSiteBeacon(PageJson, BehindProxy(false)), logger: logger));
-        Assert.Null(await Beacon(SameSiteBeacon(PageJson, BehindProxy(false)), logger: logger));
+        var rig = new Rig(logger: logger);
+        Assert.False(rig.Collector.AcceptBeacon(SameSiteBeacon(PageJson, BehindProxy(false))));
+        Assert.False(rig.Collector.AcceptBeacon(SameSiteBeacon(PageJson, BehindProxy(false))));
         string warning = Assert.Single(logger.Warnings);
         Assert.Contains("backend", warning);
         Assert.Contains("www.site.example", warning);
