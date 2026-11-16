@@ -298,6 +298,92 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
         Assert.That(summary.Countries, Is.Empty);
     }
 
+    // Now is 00:30 UTC on Nov 8, so the window is 01:00 on Nov 7 up to now and crosses UTC midnight.
+    private void SeedLastDay()
+    {
+        _time.SetUtcNow(new DateTimeOffset(2026, 11, 8, 0, 30, 0, TimeSpan.Zero));
+        Seed(
+        [
+            Row(At(11, 7, 0, 59), "old", "s0", "/before"),
+            Row(At(11, 7, 1, 0), "a", "s1", "/x"),
+            Row(At(11, 7, 1, 59), "b", "s2", "/x"),
+            Row(At(11, 7, 1, 59), "a", "s1", "/y"),
+            Row(At(11, 7, 23, 59), "a", "s3", "/x"),
+            Row(At(11, 8, 0, 0), "c", "s4", "/x"),
+            Row(At(11, 8, 0, 29), "c", "s4", "/z"),
+        ]);
+    }
+
+    [Test]
+    public void Last_day_has_24_hourly_buckets_with_empty_hours_as_zero()
+    {
+        SeedLastDay();
+
+        LastDay day = Stats().GetLastDay();
+
+        Assert.That(day.Hourly, Has.Count.EqualTo(24));
+        Assert.That(day.Hourly[0].Hour, Is.EqualTo("2026-11-07T01:00:00Z"));
+        Assert.That(day.Hourly[23].Hour, Is.EqualTo("2026-11-08T00:00:00Z"));
+        Assert.That(day.Hourly.Select(h => h.Hour).Distinct().Count(), Is.EqualTo(24));
+        Assert.That(day.Hourly.Where(h => h.PageViews == 0), Has.Count.EqualTo(21));
+        Assert.That(day.Hourly.Where(h => h.PageViews == 0).All(h => h.Visitors == 0 && h.Visits == 0), Is.True);
+    }
+
+    [Test]
+    public void Last_day_counts_across_an_hour_and_a_day_boundary()
+    {
+        SeedLastDay();
+
+        LastDay day = Stats().GetLastDay();
+
+        Assert.That(day.Hourly[0], Is.EqualTo(new HourPoint("2026-11-07T01:00:00Z", 1, 1, 1)));
+        Assert.That(day.Hourly[1], Is.EqualTo(new HourPoint("2026-11-07T02:00:00Z", 2, 2, 2)));
+        Assert.That(day.Hourly[22], Is.EqualTo(new HourPoint("2026-11-07T23:00:00Z", 1, 1, 1)));
+        Assert.That(day.Hourly[23], Is.EqualTo(new HourPoint("2026-11-08T00:00:00Z", 1, 1, 2)));
+        Assert.That(day.Hourly.Sum(h => h.PageViews), Is.EqualTo(6));
+        Assert.That(day.Totals, Is.EqualTo(new Totals(3, 3, 6)));
+    }
+
+    [Test]
+    public void Last_day_ignores_older_rows_and_ranks_pages_and_referrers()
+    {
+        SeedLastDay();
+        Seed([Row(At(11, 8, 0, 10), "d", "s9", "/x")]);
+        using (var scope = ScopeProvider.CreateScope())
+        {
+            scope.Database.Execute(
+                $"UPDATE {EventRow.TableName} SET ReferrerHost = 'news.example' WHERE Path = '/x'");
+            scope.Complete();
+        }
+
+        LastDay day = Stats().GetLastDay();
+
+        Assert.That(day.TopPages.Select(p => (p.Value, p.PageViews)),
+            Is.EqualTo(new[] { ("/x", 5), ("/y", 1), ("/z", 1) }));
+        Assert.That(day.TopPages.Select(p => p.Value), Does.Not.Contain("/before"));
+        Assert.That(day.TopReferrers.Select(p => (p.Value, p.PageViews)),
+            Is.EqualTo(new[] { ("news.example", 5), ("", 2) }));
+    }
+
+    [Test]
+    public void Last_day_is_empty_with_no_events()
+    {
+        LastDay day = Stats().GetLastDay();
+
+        Assert.That(day.Hourly, Has.Count.EqualTo(24));
+        Assert.That(day.Hourly.All(h => h.PageViews == 0), Is.True);
+        Assert.That(day.Totals, Is.EqualTo(new Totals(0, 0, 0)));
+        Assert.That(day.TopPages, Is.Empty);
+    }
+
+    [Test]
+    public void Api_returns_the_last_day()
+    {
+        var controller = new BaryoDev.Umbraco.Analytics.Api.AnalyticsController(Stats());
+        var ok = controller.GetLastDay() as Microsoft.AspNetCore.Mvc.OkObjectResult;
+        Assert.That(ok?.Value, Is.TypeOf<LastDay>());
+    }
+
     [Test]
     public void Secret_is_created_once()
     {

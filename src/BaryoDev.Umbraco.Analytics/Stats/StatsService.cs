@@ -55,6 +55,48 @@ public sealed class StatsService(IScopeProvider scopes, TimeProvider clock)
             Top(db, "Country", "country", from, skipEmpty: true));
     }
 
+    /// <summary>
+    /// The last 24 hours from the raw events only. Buckets are UTC hours: the hour holding now and the 23 before it.
+    /// The window starts at the first bucket and ends now. Each query filters on Day (indexed) and OccurredUtc.
+    /// </summary>
+    public LastDay GetLastDay()
+    {
+        DateTime now = clock.GetUtcNow().UtcDateTime;
+        DateTime first = new(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc);
+        first = first.AddHours(-23);
+
+        using var scope = scopes.CreateScope(autoComplete: true);
+        var db = scope.Database;
+
+        var hourly = new List<HourPoint>(24);
+        for (int i = 0; i < 24; i++)
+        {
+            DateTime a = first.AddHours(i);
+            DateTime b = a.AddHours(1);
+            var row = db.Fetch<CountRow>(
+                $"SELECT {Counts} FROM {EventRow.TableName} WHERE Day = @0 AND OccurredUtc >= @1 AND OccurredUtc < @2",
+                a.Date, a, b).FirstOrDefault();
+            hourly.Add(new HourPoint(a.ToString("yyyy-MM-dd'T'HH:00:00'Z'"), row?.Visitors ?? 0, row?.Visits ?? 0, row?.PageViews ?? 0));
+        }
+
+        var total = db.Fetch<CountRow>(
+            $"SELECT {Counts} FROM {EventRow.TableName} WHERE Day >= @0 AND OccurredUtc >= @1 AND OccurredUtc <= @2",
+            first.Date, first, now).FirstOrDefault();
+
+        return new LastDay(
+            first.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"), now.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            new Totals(total?.Visitors ?? 0, total?.Visits ?? 0, total?.PageViews ?? 0),
+            hourly,
+            TopSince(db, "Path", first, now),
+            TopSince(db, "ReferrerHost", first, now));
+    }
+
+    private static List<Ranked> TopSince(NPoco.IDatabase db, string column, DateTime from, DateTime to)
+        => db.SkipTake<CountRow>(0, TopCount,
+            $"SELECT {column} AS Value, {Counts} FROM {EventRow.TableName} WHERE Day >= @0 AND OccurredUtc >= @1 AND OccurredUtc <= @2 " +
+            $"GROUP BY {column} ORDER BY COUNT(*) DESC, {column}", from.Date, from, to)
+            .Select(r => new Ranked(r.Value, r.Visitors, r.Visits, r.PageViews)).ToList();
+
     // column and dimension are fixed strings from this file, never user input. Ranking and the limit run in SQL.
     private static List<Ranked> Top(NPoco.IDatabase db, string column, string dimension, DateTime from, bool skipEmpty = false)
     {

@@ -31,6 +31,7 @@ Created by a package migration plan (`BaryoDev.Umbraco.Analytics`), NPoco. Creat
 - In `Cookie` mode with middleware, the cookie is set only on HTML 200 responses to requests that pass the DNT, GPC, bot and path checks. The collector never throws; a fault is logged once and the hit is dropped. On shutdown the queue is saved within the host shutdown time.
 - Only one mode is active. The other path does nothing, so a page is never counted twice.
 - Skipped: DNT or Sec-GPC when the options say so, bot user agents, empty user agents, `/umbraco` and the configured excluded paths.
+- Script mode accepts a beacon only when the `Origin` header, or `Referer` when `Origin` is absent, has the request host (after forwarded headers) or a host in `AllowedOrigins`. Otherwise it is dropped and the endpoint still answers 202. With `RequirePublishedContent` a hit is also dropped when its path does not resolve to published content.
 - Each client is limited to `RateLimitPerMinute` hits (fixed one-minute window, keyed by a salted hash of the IP). The limiter holds at most 50,000 buckets per window. When full, hits from unseen clients are dropped until the next window. Extra hits are dropped and the endpoint still answers 202. The collect body is capped at 4 KB, and path, referrer and UTM values are cut to the column lengths.
 - Events go into a bounded in-memory queue. A background writer saves them in batches. When the queue is full, new events are dropped instead of slowing the site.
 - The client IP comes from the connection. `ClientIpHeader` is read only when the connection is from an entry in `TrustedProxies`; the chain is walked from the right and the first untrusted hop is used. The same value feeds the hash and the rate limiter.
@@ -48,6 +49,8 @@ The dashboard reads raw events for days with no `total` row and daily rows for t
 
 Management API `GET /umbraco/management/api/v1/baryo-analytics/summary?days=7|30|90`, Content section access only. The dashboard shows visitors, visits, page views, a daily SVG bar chart, top pages, top referrers, devices and browsers.
 
+The last 24 hours (`GET .../baryo-analytics/last-24-hours`) read the raw events only. The buckets are the UTC hour holding now and the 23 before it, so the window runs from the start of the first bucket to now. Every query filters on `Day` (indexed) and `OccurredUtc`, so no new index is needed. The dashboard converts the UTC hours to the user's local time. If `RetentionDays` is set below one day, hours already rolled up show as zero.
+
 ## Privacy claims backed by code
 
 - No raw IP or User-Agent column exists. See `EventRow`.
@@ -58,7 +61,7 @@ Management API `GET /umbraco/management/api/v1/baryo-analytics/summary?days=7|30
 
 ## Not covered
 
-- Anyone can POST fake page views to the collect endpoint. A per-client rate limit drops floods, but a spread-out attacker can still add fake views.
+- Anyone who sets their own Origin header can POST fake page views to the collect endpoint. The Origin check stops cross-site junk from browsers only. A per-client rate limit drops floods, but a spread-out attacker can still add fake views.
 - Behind a proxy, the site must configure forwarded headers or set `ClientIpHeader` and `TrustedProxies`, otherwise every visitor looks the same.
 - Bot detection is a user agent substring list.
 

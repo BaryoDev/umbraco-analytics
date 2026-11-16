@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The collect endpoint drops a beacon unless its Origin (or Referer) host is the request host or listed in the new `AllowedOrigins` option. The endpoint still answers 202. Sites served on more than one domain, or a tracker served from another domain, must list the page hosts.
+- New option `RequirePublishedContent` (default `false`) drops script-mode hits whose path is not published content.
+- A warning is logged once when the connection address is private or loopback and `ClientIpHeader` is not set. The README says what that means for the rate limit.
+- New "Last 24 hours" range in the dashboard, with hourly buckets, top pages and top referrers. It reads the raw events through a new endpoint, `GET baryo-analytics/last-24-hours`. Existing endpoints and ranges are unchanged. No schema change.
 - Daily page and referrer rows are deleted after another `RetentionDays`, so paths no longer live forever. Totals, device, browser and country rows are kept.
 - The rollup writes daily rows in multi-row inserts of 200.
 - The visitor map in the writer has a hard cap of 20,000 entries.

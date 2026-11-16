@@ -15,6 +15,7 @@ public sealed partial class Collector(
     private const string CookieItem = "BaryoDev.Analytics.Cookie";
     private int _failureLogged;
     private int _proxyWarned;
+    private int _privateWarned;
     private readonly SingleSourceWatch _watch = new(clock, logger);
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
@@ -256,6 +257,14 @@ public sealed partial class Collector(
                     "Configure ASP.NET Core forwarded headers, or ClientIpHeader with TrustedProxies. The rate limit is skipped without an address.");
             }
         }
+        if (remote is not null && string.IsNullOrWhiteSpace(o.ClientIpHeader) && IsPrivate(remote)
+            && Interlocked.Exchange(ref _privateWarned, 1) == 0)
+        {
+            logger.LogWarning(
+                "Analytics sees a private or loopback client address ({Address}) and ClientIpHeader is not set. " +
+                "If this site is behind a proxy that sends no client IP, all visitors share one rate limit bucket. " +
+                "Raise RateLimitPerMinute, set ClientIpHeader with TrustedProxies, or configure forwarded headers.", remote);
+        }
         if (string.IsNullOrWhiteSpace(o.ClientIpHeader) || remote is null)
         {
             return remote?.ToString() ?? string.Empty;
@@ -315,6 +324,48 @@ public sealed partial class Collector(
     }
 
     private static bool IsTrusted(IPAddress ip, IPNetwork[] trusted) => trusted.Any(n => n.Contains(ip));
+
+    private static bool IsPrivate(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+        byte[] b = ip.GetAddressBytes();
+        if (b.Length == 4)
+        {
+            return b[0] == 10 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168)
+                   || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] is >= 64 and <= 127);
+        }
+        return ip.IsIPv6LinkLocal || (b[0] & 0xFE) == 0xFC;
+    }
+
+    /// <summary>
+    /// Beacon policy: the Origin header, or Referer when Origin is absent, must name the request host
+    /// (after forwarded headers) or an AllowedOrigins host. Neither header, or another host, fails.
+    /// </summary>
+    public bool IsSameSite(HttpContext http)
+    {
+        IHeaderDictionary h = http.Request.Headers;
+        string source = h.Origin.ToString();
+        if (source.Length == 0)
+        {
+            source = h.Referer.ToString();
+        }
+        string? host = HostOf(source);
+        if (host is null)
+        {
+            return false;
+        }
+        if (host.Equals(http.Request.Host.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return options.Value.AllowedOrigins.Any(a => host.Equals(HostOf(a) ?? a.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? HostOf(string value)
+        => Uri.TryCreate(value.Trim(), UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" ? uri.Host : null;
 
     private static IPAddress? Unmap(IPAddress? ip) => ip is { IsIPv4MappedToIPv6: true } ? ip.MapToIPv4() : ip;
 

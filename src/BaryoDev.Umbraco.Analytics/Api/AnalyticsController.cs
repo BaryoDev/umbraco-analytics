@@ -29,4 +29,8 @@ public sealed class AnalyticsController(StatsService stats) : ManagementApiContr
         }
         return Ok(stats.Get(days));
     }
+
+    [HttpGet("last-24-hours")]
+    [ProducesResponseType<LastDay>(StatusCodes.Status200OK)]
+    public IActionResult GetLastDay() => Ok(stats.GetLastDay());
 }

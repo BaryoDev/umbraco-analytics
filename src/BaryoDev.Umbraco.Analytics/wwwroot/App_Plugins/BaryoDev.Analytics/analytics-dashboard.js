@@ -2,6 +2,7 @@
 const API = "/umbraco/management/api/v1/baryo-analytics";
 const BASE = "/App_Plugins/BaryoDev.Analytics";
 const RANGES = [7, 30, 90];
+const DAY = "24h";
 
 const Base = await import("@umbraco-cms/backoffice/element-api")
   .then(({ UmbElementMixin }) => UmbElementMixin(HTMLElement))
@@ -29,9 +30,10 @@ async function token(host) {
   return auth ? auth.getLatestToken() : null;
 }
 
-async function load(host, days) {
+async function load(host, range) {
   const t = await token(host);
-  const response = await fetch(`${API}/summary?days=${days}`, {
+  const url = range === DAY ? `${API}/last-24-hours` : `${API}/summary?days=${range}`;
+  const response = await fetch(url, {
     headers: t ? { Authorization: `Bearer ${t}` } : {},
     credentials: "same-origin",
   });
@@ -39,7 +41,25 @@ async function load(host, days) {
   return response.json();
 }
 
-function chart(daily) {
+// Hours arrive as UTC instants. They are shown in the backoffice user's local time.
+function hourLabel(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric" });
+}
+
+function hourPoints(hourly) {
+  return hourly.map((h) => ({
+    label: hourLabel(h.hour),
+    title: `${new Date(h.hour).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`,
+    pageViews: h.pageViews,
+    visitors: h.visitors,
+  }));
+}
+
+function dayPoints(daily) {
+  return daily.map((d) => ({ label: d.day.slice(5), title: d.day, pageViews: d.pageViews, visitors: d.visitors }));
+}
+
+function chart(daily, what) {
   const W = 720, H = 200, left = 36, bottom = 22, top = 8;
   const max = Math.max(1, ...daily.map((d) => d.pageViews));
   const inner = W - left;
@@ -49,12 +69,12 @@ function chart(daily) {
   const bars = daily.map((d, i) => {
     const h = Math.round((d.pageViews / max) * plot);
     const x = left + i * slot + (slot - barW) / 2;
-    return `<rect class="bar" x="${x.toFixed(1)}" y="${top + plot - h}" width="${barW.toFixed(1)}" height="${h}" rx="2"><title>${esc(d.day)}: ${d.pageViews} page views, ${d.visitors} visitors</title></rect>`;
+    return `<rect class="bar" x="${x.toFixed(1)}" y="${top + plot - h}" width="${barW.toFixed(1)}" height="${h}" rx="2"><title>${esc(d.title)}: ${d.pageViews} page views, ${d.visitors} visitors</title></rect>`;
   }).join("");
   const step = Math.ceil(daily.length / 6);
   const labels = daily.map((d, i) => (i % step === 0
-    ? `<text x="${(left + i * slot + slot / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(d.day.slice(5))}</text>` : "")).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Page views per day">
+    ? `<text x="${(left + i * slot + slot / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(d.label)}</text>` : "")).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Page views per ${what}">
     <line class="axis" x1="${left}" y1="${top + plot}" x2="${W}" y2="${top + plot}"/>
     <line class="axis" x1="${left}" y1="${top}" x2="${W}" y2="${top}"/>
     <text x="${left - 6}" y="${top + 4}" text-anchor="end">${max}</text>
@@ -72,12 +92,12 @@ function table(title, rows, label, empty) {
 class BaryoAnalyticsDashboard extends Base {
   constructor() {
     super();
-    this.days = 30;
+    this.range = 30;
     this.root = this.attachShadow({ mode: "open" });
     this.root.innerHTML = `<link rel="stylesheet" href="${BASE}/brand.css"><div class="ba" id="app"></div>`;
     this.root.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-days]");
-      if (b) { this.days = Number(b.dataset.days); this.refresh(); }
+      const b = e.target.closest("[data-range]");
+      if (b) { this.range = b.dataset.range === DAY ? DAY : Number(b.dataset.range); this.refresh(); }
     });
   }
 
@@ -88,17 +108,32 @@ class BaryoAnalyticsDashboard extends Base {
 
   async refresh() {
     const app = this.root.getElementById("app");
-    const head = `<div class="ba-head"><h2>Analytics</h2><div class="ba-range">${RANGES.map((d) =>
-      `<button class="ba-btn" data-days="${d}" aria-pressed="${d === this.days}">${d} days</button>`).join("")}</div></div>`;
+    const head = `<div class="ba-head"><h2>Analytics</h2><div class="ba-range">${[DAY, ...RANGES].map((d) =>
+      `<button class="ba-btn" data-range="${d}" aria-pressed="${d === this.range}">${d === DAY ? "Last 24 hours" : `${d} days`}</button>`).join("")}</div></div>`;
     try {
-      const s = await load(this, this.days);
+      const s = await load(this, this.range);
+      if (this.range === DAY) {
+        app.innerHTML = `${head}
+        <div class="ba-cards">
+          <div class="ba-card"><h3>Visitors</h3><div class="ba-num">${s.totals.visitors}</div></div>
+          <div class="ba-card"><h3>Visits</h3><div class="ba-num">${s.totals.visits}</div></div>
+          <div class="ba-card"><h3>Page views</h3><div class="ba-num">${s.totals.pageViews}</div></div>
+        </div>
+        <div class="ba-card ba-chart"><h3>Page views per hour</h3>${chart(hourPoints(s.hourly), "hour")}</div>
+        <div class="ba-grid">
+          ${table("Top pages", s.topPages, "Page", "/")}
+          ${table("Top referrers", s.topReferrers, "Referrer", "Direct")}
+        </div>
+        <p class="ba-note">Hours are shown in your local time. The last 24 hours read the raw events, so a visitor is counted once per range.</p>`;
+        return;
+      }
       app.innerHTML = `${head}
         <div class="ba-cards">
           <div class="ba-card"><h3>Visitors</h3><div class="ba-num">${s.totals.visitors}</div></div>
           <div class="ba-card"><h3>Visits</h3><div class="ba-num">${s.totals.visits}</div></div>
           <div class="ba-card"><h3>Page views</h3><div class="ba-num">${s.totals.pageViews}</div></div>
         </div>
-        <div class="ba-card ba-chart"><h3>Page views per day</h3>${chart(s.daily)}</div>
+        <div class="ba-card ba-chart"><h3>Page views per day</h3>${chart(dayPoints(s.daily), "day")}</div>
         <div class="ba-grid">
           ${table("Top pages", s.topPages, "Page", "/")}
           ${table("Top referrers", s.topReferrers, "Referrer", "Direct")}

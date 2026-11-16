@@ -42,4 +42,8 @@ public sealed class AnalyticsOptions
     /// <summary>Hits per client per minute before extra hits are dropped. 0 turns the limit off.</summary>
     public int RateLimitPerMinute { get; set; } = 120;
     public int QueueCapacity { get; set; } = 10000;
+    /// <summary>Extra hosts whose pages may post beacons, for a site served on more than one domain. A beacon is accepted only when its Origin (or Referer) host is the request host or listed here.</summary>
+    public List<string> AllowedOrigins { get; set; } = [];
+    /// <summary>When true, a script-mode hit is dropped unless its path resolves to published content. Off by default, since it also drops 404 and non-Umbraco routes.</summary>
+    public bool RequirePublishedContent { get; set; }
 }
