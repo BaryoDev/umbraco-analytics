@@ -325,7 +325,7 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
         Assert.That(day.Hourly[0].Hour, Is.EqualTo("2026-11-07T01:00:00Z"));
         Assert.That(day.Hourly[23].Hour, Is.EqualTo("2026-11-08T00:00:00Z"));
         Assert.That(day.Hourly.Select(h => h.Hour).Distinct().Count(), Is.EqualTo(24));
-        Assert.That(day.Hourly.Where(h => h.PageViews == 0), Has.Count.EqualTo(21));
+        Assert.That(day.Hourly.Count(h => h.PageViews == 0), Is.EqualTo(21));
         Assert.That(day.Hourly.Where(h => h.PageViews == 0).All(h => h.Visitors == 0 && h.Visits == 0), Is.True);
     }
 
@@ -336,12 +336,13 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
 
         LastDay day = Stats().GetLastDay();
 
-        Assert.That(day.Hourly[0], Is.EqualTo(new HourPoint("2026-11-07T01:00:00Z", 1, 1, 1)));
-        Assert.That(day.Hourly[1], Is.EqualTo(new HourPoint("2026-11-07T02:00:00Z", 2, 2, 2)));
+        // Each bucket is labelled by its start hour and holds [start, start + 1h).
+        Assert.That(day.Hourly[0], Is.EqualTo(new HourPoint("2026-11-07T01:00:00Z", 2, 2, 3)));
+        Assert.That(day.Hourly[1], Is.EqualTo(new HourPoint("2026-11-07T02:00:00Z", 0, 0, 0)));
         Assert.That(day.Hourly[22], Is.EqualTo(new HourPoint("2026-11-07T23:00:00Z", 1, 1, 1)));
         Assert.That(day.Hourly[23], Is.EqualTo(new HourPoint("2026-11-08T00:00:00Z", 1, 1, 2)));
         Assert.That(day.Hourly.Sum(h => h.PageViews), Is.EqualTo(6));
-        Assert.That(day.Totals, Is.EqualTo(new Totals(3, 3, 6)));
+        Assert.That(day.Totals, Is.EqualTo(new Totals(3, 4, 6)));
     }
 
     [Test]
