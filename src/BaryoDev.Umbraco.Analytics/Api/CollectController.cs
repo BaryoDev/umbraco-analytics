@@ -20,7 +20,7 @@ public sealed class CollectController(
     {
         if (options.Value.Mode != CollectionMode.Script || runtime.Level != RuntimeLevel.Run
             || Request.ContentLength is > MaxBody
-            || !collector.IsSameSite(HttpContext))
+            || !collector.AcceptBeacon(HttpContext))
         {
             return Accepted();
         }

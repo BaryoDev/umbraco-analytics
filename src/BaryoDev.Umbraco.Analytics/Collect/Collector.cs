@@ -16,6 +16,7 @@ public sealed partial class Collector(
     private int _failureLogged;
     private int _proxyWarned;
     private int _privateWarned;
+    private int _sameSiteWarned;
     private readonly SingleSourceWatch _watch = new(clock, logger);
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
@@ -341,18 +342,17 @@ public sealed partial class Collector(
     }
 
     /// <summary>
-    /// Beacon policy: the Origin header, or Referer when Origin is absent, must name the request host
-    /// (after forwarded headers) or an AllowedOrigins host. Neither header, or another host, fails.
+    /// Beacon policy: true when the browser says Sec-Fetch-Site same-origin, or when the Origin header
+    /// (Referer when Origin is absent) names the request host or an AllowedOrigins host.
     /// </summary>
     public bool IsSameSite(HttpContext http)
     {
         IHeaderDictionary h = http.Request.Headers;
-        string source = h.Origin.ToString();
-        if (source.Length == 0)
+        if (h["Sec-Fetch-Site"].ToString().Trim().Equals("same-origin", StringComparison.OrdinalIgnoreCase))
         {
-            source = h.Referer.ToString();
+            return true;
         }
-        string? host = HostOf(source);
+        string? host = HostOf(SourceHeader(h));
         if (host is null)
         {
             return false;
@@ -361,7 +361,47 @@ public sealed partial class Collector(
         {
             return true;
         }
-        return options.Value.AllowedOrigins.Any(a => host.Equals(HostOf(a) ?? a.Trim(), StringComparison.OrdinalIgnoreCase));
+        return options.Value.AllowedOrigins.Any(a => host.Equals(AllowedHost(a), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>IsSameSite, plus one warning per process the first time a beacon is dropped.</summary>
+    public bool AcceptBeacon(HttpContext http)
+    {
+        if (IsSameSite(http))
+        {
+            return true;
+        }
+        if (Interlocked.Exchange(ref _sameSiteWarned, 1) == 0)
+        {
+            logger.LogWarning(
+                "Analytics dropped a beacon: request host {RequestHost}, source host {SourceHost}. " +
+                "Keep the Host header through the proxy, enable XForwardedHost in forwarded headers, or add the page host to AllowedOrigins. " +
+                "This is logged once.",
+                http.Request.Host.Host, HostOf(SourceHeader(http.Request.Headers)) ?? "none");
+        }
+        return false;
+    }
+
+    private static string SourceHeader(IHeaderDictionary h)
+    {
+        string source = h.Origin.ToString();
+        return source.Length == 0 ? h.Referer.ToString() : source;
+    }
+
+    private static string AllowedHost(string entry)
+    {
+        string e = entry.Trim();
+        if (e.Contains("://", StringComparison.Ordinal))
+        {
+            return HostOf(e) ?? e;
+        }
+        if (e.StartsWith('['))
+        {
+            int close = e.IndexOf(']');
+            return close > 0 ? e[1..close] : e;
+        }
+        int colon = e.LastIndexOf(':');
+        return colon > 0 && e.IndexOf(':') == colon ? e[..colon] : e;
     }
 
     private static string? HostOf(string value)
