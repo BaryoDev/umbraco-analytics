@@ -39,7 +39,7 @@ All keys live under `BaryoDev:Analytics` in appsettings.
 | `SaltRotation` | `Monthly` | `Monthly`, `Daily` or `Cookie` |
 | `VisitIdleMinutes` | `30` | Idle time that ends a visit |
 | `RetentionDays` | `395` | Raw events older than this are rolled into daily totals and deleted. Daily rows are kept |
-| `DeleteOldPageAndReferrerRows` | `false` | When `true`, daily page and referrer rows are deleted once they are older than twice `RetentionDays`. Totals, device, browser and country rows are always kept |
+| `DeleteOldPageAndReferrerRows` | `false` | When `true`, daily page and referrer rows are deleted once they are older than twice `RetentionDays`. Deleted rows cannot be recovered. Totals, device, browser and country rows are always kept |
 | `RespectDoNotTrack` | `true` | Skip requests with `DNT: 1` |
 | `RespectGlobalPrivacyControl` | `true` | Skip requests with `Sec-GPC: 1` |
 | `CountryHeader` | `CF-IPCountry` | Country is stored only if this header is present |

@@ -81,7 +81,7 @@ public sealed class RetentionJob(
         return days.Count;
     }
 
-    /// <summary>Paths and referrer hosts can hold personal data, so their daily rows do not live forever.</summary>
+    /// <summary>Paths and referrer hosts can hold personal data, so a site can opt in to deleting their old daily rows.</summary>
     private void PurgeOldValues(DateTime horizon)
     {
         int purged = 0;

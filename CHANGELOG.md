@@ -2,16 +2,18 @@
 
 ## 0.2.1
 
-### Changes
+### Breaking
 
-- Daily rows are kept again by default, as in 0.1.0. The 0.2.0 purge of daily page and referrer rows older than twice `RetentionDays` now runs only when the new option `DeleteOldPageAndReferrerRows` is `true`. Sites that want 0.2.0 behaviour set it to `true`. Rows already deleted by 0.2.0 are not restored.
+- Daily page and referrer rows are kept again by default, as in 0.1.0. The 0.2.0 purge runs only when the new option `DeleteOldPageAndReferrerRows` is `true`.
+- To keep the 0.2.0 behaviour, set `BaryoDev:Analytics:DeleteOldPageAndReferrerRows` to `true`.
+- Rows already deleted by 0.2.0 are not restored.
 
 ## 0.2.0
 
 ### Breaking
 
 - The collect endpoint drops a beacon unless the browser sends `Sec-Fetch-Site: same-origin`, or its Origin (or Referer) host is the request host or listed in the new `AllowedOrigins` option. The endpoint still answers 202 and logs one warning per process on the first drop. Behind a proxy that rewrites the Host header, keep the original Host, enable `XForwardedHost` in forwarded headers, or list the page host in `AllowedOrigins`. A site served on more than one domain, or a tracker served from another domain, must list the page hosts in `AllowedOrigins` (`host`, `host:port` or a full origin).
-- 0.1.0 kept daily rows forever. Daily page and referrer rows are now deleted once they are older than twice `RetentionDays` (790 days with the default 395), so paths no longer live forever. Totals, device, browser and country rows are still kept. Raise `RetentionDays` to keep page and referrer rows longer.
+- 0.1.0 kept daily rows forever. Daily page and referrer rows are now deleted once they are older than twice `RetentionDays` (790 days with the default 395), so paths no longer live forever. 0.2.1 makes this opt-in. Totals, device, browser and country rows are still kept. Raise `RetentionDays` to keep page and referrer rows longer.
 
 ### Changes
 
