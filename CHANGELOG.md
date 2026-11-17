@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Changes
+
+- Daily rows are kept again by default, as in 0.1.0. The 0.2.0 purge of daily page and referrer rows older than twice `RetentionDays` now runs only when the new option `DeleteOldPageAndReferrerRows` is `true`. Sites that want 0.2.0 behaviour set it to `true`. Rows already deleted by 0.2.0 are not restored.
+
 ## 0.2.0
 
 ### Breaking

@@ -28,6 +28,8 @@ public sealed class AnalyticsOptions
     public CollectionMode Mode { get; set; } = CollectionMode.Script;
     public int VisitIdleMinutes { get; set; } = 30;
     public int RetentionDays { get; set; } = 395;
+    /// <summary>When true, daily page and referrer rows older than twice RetentionDays are deleted. Off by default, so daily rows are kept.</summary>
+    public bool DeleteOldPageAndReferrerRows { get; set; }
     public bool RespectDoNotTrack { get; set; } = true;
     public bool RespectGlobalPrivacyControl { get; set; } = true;
     public string CookieName { get; set; } = "ba_vid";
