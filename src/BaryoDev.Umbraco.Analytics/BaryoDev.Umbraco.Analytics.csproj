@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
     <PackageId>BaryoDev.Umbraco.Analytics</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Authors>BaryoDev</Authors>
     <Description>Cookie-free page view analytics for Umbraco 17, stored in the site's own database. No second database, no raw IP or User-Agent kept.</Description>
     <PackageTags>umbraco umbraco-marketplace analytics privacy page-views cookie-free</PackageTags>

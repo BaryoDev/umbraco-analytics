@@ -213,23 +213,38 @@ public class AnalyticsDataTests : UmbracoIntegrationTest
         Assert.That(Daily().Single(d => d.Dimension == "total").PageViews, Is.EqualTo(450));
     }
 
+    private void InsertOldDailyRows()
+    {
+        DailyRow D(DateTime day, string dimension) => new() { Day = day.Date, Dimension = dimension, Value = "/secret/token", Visitors = 1, Visits = 1, PageViews = 1 };
+        using var scope = ScopeProvider.CreateScope();
+        foreach (var row in new[]
+        {
+            D(At(10, 30), "page"), D(At(10, 30), "referrer"), D(At(10, 30), "device"), D(At(10, 30), "total"),
+            D(At(11, 1), "page"), D(At(11, 2), "referrer"),
+        })
+        {
+            scope.Database.Insert(row);
+        }
+        scope.Complete();
+    }
+
     [Test]
-    public void Page_and_referrer_daily_rows_are_deleted_after_another_retention_period()
+    public void Daily_rows_are_kept_by_default()
+    {
+        InsertOldDailyRows();
+
+        Job().Run();
+
+        var left = Daily().Select(d => (d.Day.Day, d.Dimension)).ToList();
+        Assert.That(left, Is.EquivalentTo(new[] { (30, "page"), (30, "referrer"), (30, "device"), (30, "total"), (1, "page"), (2, "referrer") }));
+    }
+
+    [Test]
+    public void Page_and_referrer_daily_rows_are_deleted_after_another_retention_period_when_opted_in()
     {
         // RetentionDays is 3, now is 2026-11-07, so the cutoff is 11-04 and the purge horizon is 11-01.
-        DailyRow D(DateTime day, string dimension) => new() { Day = day.Date, Dimension = dimension, Value = "/secret/token", Visitors = 1, Visits = 1, PageViews = 1 };
-        using (var scope = ScopeProvider.CreateScope())
-        {
-            foreach (var row in new[]
-            {
-                D(At(10, 30), "page"), D(At(10, 30), "referrer"), D(At(10, 30), "device"), D(At(10, 30), "total"),
-                D(At(11, 1), "page"), D(At(11, 2), "referrer"),
-            })
-            {
-                scope.Database.Insert(row);
-            }
-            scope.Complete();
-        }
+        _options.DeleteOldPageAndReferrerRows = true;
+        InsertOldDailyRows();
 
         Job().Run();
 

@@ -12,7 +12,8 @@ namespace BaryoDev.Umbraco.Analytics.Retention;
 
 /// <summary>
 /// Rolls raw events older than RetentionDays into daily rows, then deletes them. The per-value page and referrer
-/// daily rows are deleted once they are another RetentionDays old. Totals, device, browser and country rows stay.
+/// daily rows are deleted once they are another RetentionDays old, only when DeleteOldPageAndReferrerRows is on.
+/// Totals, device, browser and country rows stay.
 /// </summary>
 public sealed class RetentionJob(
     IScopeProvider scopes, IRuntimeState runtime, IServerRoleAccessor roles,
@@ -73,11 +74,14 @@ public sealed class RetentionJob(
         {
             logger.LogInformation("Analytics rolled up {Count} days older than {Cutoff:yyyy-MM-dd}.", days.Count, cutoff);
         }
-        PurgeOldValues(cutoff.AddDays(-Math.Max(1, options.Value.RetentionDays)));
+        if (options.Value.DeleteOldPageAndReferrerRows)
+        {
+            PurgeOldValues(cutoff.AddDays(-Math.Max(1, options.Value.RetentionDays)));
+        }
         return days.Count;
     }
 
-    /// <summary>Paths and referrer hosts can hold personal data, so their daily rows do not live forever.</summary>
+    /// <summary>Paths and referrer hosts can hold personal data, so a site can opt in to deleting their old daily rows.</summary>
     private void PurgeOldValues(DateTime horizon)
     {
         int purged = 0;
