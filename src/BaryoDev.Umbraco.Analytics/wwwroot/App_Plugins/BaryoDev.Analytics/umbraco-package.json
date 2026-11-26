@@ -1,14 +1,14 @@
 {
   "$schema": "../../umbraco-package-schema.json",
   "name": "BaryoDev.Umbraco.Analytics",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "allowTelemetry": false,
   "extensions": [
     {
       "type": "dashboard",
       "alias": "BaryoDev.Analytics.Dashboard",
       "name": "Analytics",
-      "element": "/App_Plugins/BaryoDev.Analytics/analytics-dashboard.js",
+      "element": "/App_Plugins/BaryoDev.Analytics/analytics-dashboard.js?v=0.3.0",
       "weight": -10,
       "meta": {
         "label": "Analytics",

@@ -1,0 +1,17 @@
+.ba { padding: var(--uui-size-layout-1); display: grid; gap: var(--uui-size-space-5); font-family: var(--uui-font-family); color: var(--uui-color-text); box-sizing: border-box; }
+.ba * { box-sizing: border-box; }
+.ba-head { display: flex; align-items: center; gap: var(--uui-size-space-5); }
+.ba-head svg { height: 28px; display: block; }
+.ba-title { margin: 0; font-size: var(--uui-type-h4-size); }
+.ba-err { padding: var(--uui-size-space-3) var(--uui-size-space-4); background: var(--uui-color-surface); border: 1px solid var(--uui-color-danger-standalone); border-radius: var(--uui-border-radius); color: var(--uui-color-danger-standalone); }
+.ba-note { margin: 0; color: var(--uui-color-text-alt); font-size: var(--uui-type-small-size); }
+.ba-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--uui-size-space-5); }
+.ba-num { font-size: var(--uui-type-h3-size); font-weight: 700; }
+.ba-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--uui-size-space-5); }
+.ba-v { overflow-wrap: anywhere; }
+.ba-n { text-align: right; }
+.ba-chart svg { width: 100%; height: auto; display: block; }
+.ba-chart text { fill: var(--uui-color-text-alt); font-size: 10px; }
+.ba-chart .axis { stroke: var(--uui-color-border); stroke-width: 1; }
+.ba-chart .bar { fill: var(--uui-color-interactive); }
+.ba-chart .bar:hover { fill: var(--uui-color-interactive-emphasis); }

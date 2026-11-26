@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+### Changes
+
+- The dashboard now uses the Umbraco UI elements and the backoffice theme (light, dark and high contrast) instead of the baryo.dev colors. Only the baryo.dev logo and the name stay in the header.
+- The stylesheet is now `dashboard.css`. The dashboard script and stylesheet load with the package version query so an upgrade does not serve a cached copy.
+
 ## 0.2.1
 
 ### Breaking

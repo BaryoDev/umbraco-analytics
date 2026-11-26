@@ -3,6 +3,8 @@ const API = "/umbraco/management/api/v1/baryo-analytics";
 const BASE = "/App_Plugins/BaryoDev.Analytics";
 const RANGES = [7, 30, 90];
 const DAY = "24h";
+const V = new URL(import.meta.url).search;
+const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 134 32" role="img" aria-label="baryo.dev"><rect x="0" y="0" width="32" height="32" rx="8" fill="#0b7a55"/><path d="M9 8v16h7a5 5 0 0 0 0-10h-3" fill="none" stroke="#fbf7ee" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="9" r="2.4" fill="#ffcd3c"/><text x="40" y="22" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="18" font-weight="700" fill="currentColor">baryo.dev</text></svg>`;
 
 const Base = await import("@umbraco-cms/backoffice/element-api")
   .then(({ UmbElementMixin }) => UmbElementMixin(HTMLElement))
@@ -69,7 +71,7 @@ function chart(daily, what) {
   const bars = daily.map((d, i) => {
     const h = Math.round((d.pageViews / max) * plot);
     const x = left + i * slot + (slot - barW) / 2;
-    return `<rect class="bar" x="${x.toFixed(1)}" y="${top + plot - h}" width="${barW.toFixed(1)}" height="${h}" rx="2"><title>${esc(d.title)}: ${d.pageViews} page views, ${d.visitors} visitors</title></rect>`;
+    return `<rect class="bar" x="${x.toFixed(1)}" y="${top + plot - h}" width="${barW.toFixed(1)}" height="${h}" rx="2"><title>${esc(d.title)}: ${esc(d.pageViews)} page views, ${esc(d.visitors)} visitors</title></rect>`;
   }).join("");
   const step = Math.ceil(daily.length / 6);
   const labels = daily.map((d, i) => (i % step === 0
@@ -77,16 +79,24 @@ function chart(daily, what) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Page views per ${what}">
     <line class="axis" x1="${left}" y1="${top + plot}" x2="${W}" y2="${top + plot}"/>
     <line class="axis" x1="${left}" y1="${top}" x2="${W}" y2="${top}"/>
-    <text x="${left - 6}" y="${top + 4}" text-anchor="end">${max}</text>
+    <text x="${left - 6}" y="${top + 4}" text-anchor="end">${esc(max)}</text>
     <text x="${left - 6}" y="${top + plot}" text-anchor="end">0</text>
     ${bars}${labels}</svg>`;
 }
 
 function table(title, rows, label, empty) {
   const body = rows.length
-    ? rows.map((r) => `<tr><td class="v">${esc(r.value || empty)}</td><td class="n">${r.visitors}</td><td class="n">${r.pageViews}</td></tr>`).join("")
-    : `<tr><td colspan="3" class="ba-note">No data yet.</td></tr>`;
-  return `<div class="ba-card"><h3>${esc(title)}</h3><table class="ba-table"><thead><tr><th>${esc(label)}</th><th class="n">Visitors</th><th class="n">Views</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    ? rows.map((r) => `<uui-table-row><uui-table-cell class="ba-v">${esc(r.value || empty)}</uui-table-cell><uui-table-cell class="ba-n">${esc(r.visitors)}</uui-table-cell><uui-table-cell class="ba-n">${esc(r.pageViews)}</uui-table-cell></uui-table-row>`).join("")
+    : `<uui-table-row><uui-table-cell><span class="ba-note">No data yet.</span></uui-table-cell></uui-table-row>`;
+  return `<uui-box headline="${esc(title)}"><uui-table><uui-table-head><uui-table-head-cell>${esc(label)}</uui-table-head-cell><uui-table-head-cell class="ba-n">Visitors</uui-table-head-cell><uui-table-head-cell class="ba-n">Views</uui-table-head-cell></uui-table-head>${body}</uui-table></uui-box>`;
+}
+
+function stat(title, value) {
+  return `<uui-box headline="${esc(title)}"><div class="ba-num">${esc(value)}</div></uui-box>`;
+}
+
+function cards(t) {
+  return `<div class="ba-cards">${stat("Visitors", t.visitors)}${stat("Visits", t.visits)}${stat("Page views", t.pageViews)}</div>`;
 }
 
 class BaryoAnalyticsDashboard extends Base {
@@ -94,7 +104,7 @@ class BaryoAnalyticsDashboard extends Base {
     super();
     this.range = 30;
     this.root = this.attachShadow({ mode: "open" });
-    this.root.innerHTML = `<link rel="stylesheet" href="${BASE}/brand.css"><div class="ba" id="app"></div>`;
+    this.root.innerHTML = `<link rel="stylesheet" href="${BASE}/dashboard.css${V}"><div class="ba" id="app"></div>`;
     this.root.addEventListener("click", (e) => {
       const b = e.target.closest("[data-range]");
       if (b) { this.range = b.dataset.range === DAY ? DAY : Number(b.dataset.range); this.refresh(); }
@@ -108,18 +118,17 @@ class BaryoAnalyticsDashboard extends Base {
 
   async refresh() {
     const app = this.root.getElementById("app");
-    const head = `<div class="ba-head"><h2>Analytics</h2><div class="ba-range">${[DAY, ...RANGES].map((d) =>
-      `<button class="ba-btn" data-range="${d}" aria-pressed="${d === this.range}">${d === DAY ? "Last 24 hours" : `${d} days`}</button>`).join("")}</div></div>`;
+    const head = `<div class="ba-head">${LOGO}<h1 class="ba-title">Analytics</h1></div>
+      <uui-tab-group>${[DAY, ...RANGES].map((d) => {
+    const text = d === DAY ? "Last 24 hours" : `${d} days`;
+    return `<uui-tab data-range="${d}" label="${text}" ${d === this.range ? "active" : ""}><span>${text}</span></uui-tab>`;
+  }).join("")}</uui-tab-group>`;
     try {
       const s = await load(this, this.range);
       if (this.range === DAY) {
         app.innerHTML = `${head}
-        <div class="ba-cards">
-          <div class="ba-card"><h3>Visitors</h3><div class="ba-num">${s.totals.visitors}</div></div>
-          <div class="ba-card"><h3>Visits</h3><div class="ba-num">${s.totals.visits}</div></div>
-          <div class="ba-card"><h3>Page views</h3><div class="ba-num">${s.totals.pageViews}</div></div>
-        </div>
-        <div class="ba-card ba-chart"><h3>Page views per hour</h3>${chart(hourPoints(s.hourly), "hour")}</div>
+        ${cards(s.totals)}
+        <uui-box class="ba-chart" headline="Page views per hour">${chart(hourPoints(s.hourly), "hour")}</uui-box>
         <div class="ba-grid">
           ${table("Top pages", s.topPages, "Page", "/")}
           ${table("Top referrers", s.topReferrers, "Referrer", "Direct")}
@@ -128,12 +137,8 @@ class BaryoAnalyticsDashboard extends Base {
         return;
       }
       app.innerHTML = `${head}
-        <div class="ba-cards">
-          <div class="ba-card"><h3>Visitors</h3><div class="ba-num">${s.totals.visitors}</div></div>
-          <div class="ba-card"><h3>Visits</h3><div class="ba-num">${s.totals.visits}</div></div>
-          <div class="ba-card"><h3>Page views</h3><div class="ba-num">${s.totals.pageViews}</div></div>
-        </div>
-        <div class="ba-card ba-chart"><h3>Page views per day</h3>${chart(dayPoints(s.daily), "day")}</div>
+        ${cards(s.totals)}
+        <uui-box class="ba-chart" headline="Page views per day">${chart(dayPoints(s.daily), "day")}</uui-box>
         <div class="ba-grid">
           ${table("Top pages", s.topPages, "Page", "/")}
           ${table("Top referrers", s.topReferrers, "Referrer", "Direct")}
