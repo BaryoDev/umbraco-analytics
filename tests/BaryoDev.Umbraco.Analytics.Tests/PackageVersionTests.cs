@@ -26,12 +26,21 @@ public class PackageVersionTests
             Path.Combine(src, "wwwroot", "App_Plugins", "BaryoDev.Analytics", "umbraco-package.json")));
 
         Assert.Equal(version, manifest.RootElement.GetProperty("version").GetString());
-        foreach (var ext in manifest.RootElement.GetProperty("extensions").EnumerateArray())
-        {
-            if (ext.TryGetProperty("element", out var element))
-            {
-                Assert.EndsWith($".js?v={version}", element.GetString());
-            }
-        }
+        var elements = manifest.RootElement.GetProperty("extensions").EnumerateArray()
+            .Where(ext => ext.TryGetProperty("element", out _))
+            .Select(ext => ext.GetProperty("element").GetString())
+            .ToList();
+        Assert.NotEmpty(elements);
+        Assert.All(elements, element => Assert.EndsWith($".js?v={version}", element));
+    }
+
+    [Fact]
+    public void Dashboard_loads_the_stylesheet_with_the_script_version_query()
+    {
+        var script = File.ReadAllText(Path.Combine(Root(), "src", "BaryoDev.Umbraco.Analytics",
+            "wwwroot", "App_Plugins", "BaryoDev.Analytics", "analytics-dashboard.js"));
+
+        Assert.Contains("const V = new URL(import.meta.url).search;", script);
+        Assert.Contains("dashboard.css${V}", script);
     }
 }

@@ -87,7 +87,7 @@ function chart(daily, what) {
 function table(title, rows, label, empty) {
   const body = rows.length
     ? rows.map((r) => `<uui-table-row><uui-table-cell class="ba-v">${esc(r.value || empty)}</uui-table-cell><uui-table-cell class="ba-n">${esc(r.visitors)}</uui-table-cell><uui-table-cell class="ba-n">${esc(r.pageViews)}</uui-table-cell></uui-table-row>`).join("")
-    : `<uui-table-row><uui-table-cell><span class="ba-note">No data yet.</span></uui-table-cell></uui-table-row>`;
+    : `<uui-table-row><uui-table-cell><span class="ba-note">No data yet.</span></uui-table-cell><uui-table-cell></uui-table-cell><uui-table-cell></uui-table-cell></uui-table-row>`;
   return `<uui-box headline="${esc(title)}"><uui-table><uui-table-head><uui-table-head-cell>${esc(label)}</uui-table-head-cell><uui-table-head-cell class="ba-n">Visitors</uui-table-head-cell><uui-table-head-cell class="ba-n">Views</uui-table-head-cell></uui-table-head>${body}</uui-table></uui-box>`;
 }
 
