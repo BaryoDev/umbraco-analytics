@@ -91,6 +91,15 @@ function table(title, rows, label, empty) {
   return `<uui-box headline="${esc(title)}"><uui-table><uui-table-head><uui-table-head-cell>${esc(label)}</uui-table-head-cell><uui-table-head-cell class="ba-n">Visitors</uui-table-head-cell><uui-table-head-cell class="ba-n">Views</uui-table-head-cell></uui-table-head>${body}</uui-table></uui-box>`;
 }
 
+// UUI 2.1.1 tabs do not set aria-selected on their inner tab button, so screen readers would not hear which range is shown.
+async function markSelected(root) {
+  await customElements.whenDefined("uui-tab");
+  for (const tab of root.querySelectorAll("uui-tab")) {
+    await tab.updateComplete;
+    tab.shadowRoot?.getElementById("button")?.setAttribute("aria-selected", String(tab.active === true));
+  }
+}
+
 function stat(title, value) {
   return `<uui-box headline="${esc(title)}"><div class="ba-num">${esc(value)}</div></uui-box>`;
 }
@@ -149,6 +158,8 @@ class BaryoAnalyticsDashboard extends Base {
         <p class="ba-note">Counts use a salted hash, no cookies. Raw IP addresses and User-Agents are never stored.</p>`;
     } catch (e) {
       app.innerHTML = `${head}<div class="ba-err">${esc(e.message)}</div>`;
+    } finally {
+      await markSelected(app);
     }
   }
 }
